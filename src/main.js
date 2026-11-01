@@ -59,6 +59,10 @@ function formatDuration(seconds) {
   return `${minutes}分`;
 }
 
+function cleanLabel(label) {
+  return (label || "").replace(/\s*\([^)]*\)$/, "").trim();
+}
+
 function getLocalTimeString() {
   const now = new Date();
   return now.toLocaleTimeString("ja-JP", {
@@ -96,7 +100,7 @@ async function fetchStatus() {
         fiveHourSeconds = item.remaining_seconds;
         updateGauge(ring5h, val5h, item.remaining_fraction, item.percentage);
         reset5h.textContent = `リセット: ${formatDuration(fiveHourSeconds)}`;
-        model5h.textContent = item.label;
+        model5h.textContent = cleanLabel(item.label);
       } else {
         updateGauge(ring5h, val5h, 1.0, 100);
         reset5h.textContent = "リセット: 正常";
@@ -109,7 +113,7 @@ async function fetchStatus() {
         weeklySeconds = item.remaining_seconds;
         updateGauge(ringWeekly, valWeekly, item.remaining_fraction, item.percentage);
         resetWeekly.textContent = `リセット: ${formatDuration(weeklySeconds)}`;
-        modelWeekly.textContent = item.label;
+        modelWeekly.textContent = cleanLabel(item.label);
       } else {
         updateGauge(ringWeekly, valWeekly, 1.0, 100);
         resetWeekly.textContent = "リセット: 正常";

@@ -54,6 +54,17 @@ fn format_duration(seconds: i64) -> String {
     }
 }
 
+fn clean_model_label(raw: &str) -> String {
+    // 末尾の " (Low)", " (Medium)", " (High)" 等を除去
+    if let Some(idx) = raw.rfind('(') {
+        let name = raw[..idx].trim();
+        if !name.is_empty() {
+            return name.to_string();
+        }
+    }
+    raw.trim().to_string()
+}
+
 fn discover_language_server() -> Option<(String, Vec<u16>)> {
     let script = r#"
         $proc = Get-CimInstance Win32_Process -Filter "Name like '%language_server%'" | Select-Object -First 1 ProcessId, CommandLine
@@ -172,7 +183,8 @@ fn get_quota_status() -> QuotaStatus {
 
     if let Some(configs) = user_status["cascadeModelConfigData"]["clientModelConfigs"].as_array() {
         for config in configs {
-            let label = config["label"].as_str().unwrap_or("").to_string();
+            let raw_label = config["label"].as_str().unwrap_or("");
+            let label = clean_model_label(raw_label);
             let model_id = config["modelId"].as_str().unwrap_or("").to_string();
             let quota_info = &config["quotaInfo"];
 
@@ -186,7 +198,7 @@ fn get_quota_status() -> QuotaStatus {
             }
 
             let item = LimitItem {
-                label: label.clone(),
+                label,
                 model_id: model_id.clone(),
                 remaining_fraction: fraction,
                 percentage,
