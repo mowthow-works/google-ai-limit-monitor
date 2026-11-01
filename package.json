@@ -1,0 +1,15 @@
+{
+  "name": "google-ai-limit-monitor",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Desktop gadget for Windows to monitor Google AI (Antigravity/Gemini) 5-Hour and Weekly limits",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
