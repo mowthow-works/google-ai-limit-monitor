@@ -11,13 +11,13 @@
     "windows": [
       {
         "title": "Google AI Limit Monitor",
-        "width": 360,
-        "height": 315,
+        "width": 344,
+        "height": 300,
         "resizable": false,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
-        "shadow": true
+        "shadow": false
       }
     ],
     "security": {
