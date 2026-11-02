@@ -130,8 +130,7 @@ fn fetch_user_status(token: &str, ports: &[u16]) -> Result<serde_json::Value, St
     Err("Could not connect to Language Server on any port".to_string())
 }
 
-#[tauri::command]
-fn get_quota_status() -> QuotaStatus {
+fn get_quota_status_blocking() -> QuotaStatus {
     let now_utc = Utc::now();
     let now_local = Local::now();
     let updated_at = now_local.format("%H:%M:%S").to_string();
@@ -237,6 +236,26 @@ fn get_quota_status() -> QuotaStatus {
         email,
         updated_at,
     }
+}
+
+// メインスレッドをブロックしない非同期コマンド
+#[tauri::command]
+async fn get_quota_status() -> QuotaStatus {
+    tauri::async_runtime::spawn_blocking(get_quota_status_blocking)
+        .await
+        .unwrap_or_else(|_| {
+            let now_local = Local::now();
+            QuotaStatus {
+                connected: false,
+                status_message: "スレッドエラー".to_string(),
+                five_hour_limit: None,
+                weekly_limit: None,
+                plan_name: "エラー".to_string(),
+                prompt_credits: 0,
+                email: "".to_string(),
+                updated_at: now_local.format("%H:%M:%S").to_string(),
+            }
+        })
 }
 
 #[tauri::command]

@@ -42,20 +42,26 @@ body {
   flex-direction: column;
   justify-content: space-between;
   padding: 12px 14px 10px 14px;
-  cursor: grab;
 }
 
-.gadget-container:active {
-  cursor: grabbing;
-}
-
-/* ヘッダー */
+/* ヘッダー（タイトルバー：ドラッグ領域） */
 .gadget-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   padding-bottom: 8px;
+  cursor: grab;
+}
+
+.gadget-header:active {
+  cursor: grabbing;
+}
+
+.window-controls {
+  display: flex;
+  gap: 4px;
+  cursor: default;
 }
 
 .brand-group {

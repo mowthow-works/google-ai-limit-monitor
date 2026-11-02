@@ -8,13 +8,13 @@
     <script type="module" src="main.js" defer></script>
   </head>
   <body>
-    <div class="gadget-container" data-tauri-drag-region>
-      <!-- ヘッダーバー -->
+    <div class="gadget-container">
+      <!-- タイトルバー領域（ドラッグ可能領域） -->
       <header class="gadget-header" data-tauri-drag-region>
         <div class="brand-group" data-tauri-drag-region>
           <div id="status-dot" class="status-dot disconnected" title="未接続"></div>
           <span class="app-title" data-tauri-drag-region>Google AI Limits</span>
-          <span id="plan-badge" class="plan-badge">--</span>
+          <span id="plan-badge" class="plan-badge" data-tauri-drag-region>--</span>
         </div>
         <div class="window-controls">
           <button id="btn-refresh" class="icon-btn" title="今すぐ更新">
@@ -36,19 +36,19 @@
       </header>
 
       <!-- メインメーター -->
-      <main class="meters-container" data-tauri-drag-region>
+      <main class="meters-container">
         <!-- 5-Hour Limit メーター -->
-        <div class="meter-card" data-tauri-drag-region>
-          <div class="gauge-wrapper" data-tauri-drag-region>
+        <div class="meter-card">
+          <div class="gauge-wrapper">
             <svg class="progress-ring" width="88" height="88">
               <circle class="ring-bg" cx="44" cy="44" r="36" />
               <circle id="ring-5h" class="ring-val" cx="44" cy="44" r="36" />
             </svg>
-            <div class="gauge-center" data-tauri-drag-region>
+            <div class="gauge-center">
               <span id="val-5h" class="gauge-percent">--%</span>
             </div>
           </div>
-          <div class="meter-meta" data-tauri-drag-region>
+          <div class="meter-meta">
             <div class="meter-title">5-Hour Limit</div>
             <div id="reset-5h" class="meter-reset">リセット: --</div>
             <div id="model-5h" class="meter-model">待機中</div>
@@ -56,17 +56,17 @@
         </div>
 
         <!-- Weekly Limit メーター -->
-        <div class="meter-card" data-tauri-drag-region>
-          <div class="gauge-wrapper" data-tauri-drag-region>
+        <div class="meter-card">
+          <div class="gauge-wrapper">
             <svg class="progress-ring" width="88" height="88">
               <circle class="ring-bg" cx="44" cy="44" r="36" />
               <circle id="ring-weekly" class="ring-val" cx="44" cy="44" r="36" />
             </svg>
-            <div class="gauge-center" data-tauri-drag-region>
+            <div class="gauge-center">
               <span id="val-weekly" class="gauge-percent">--%</span>
             </div>
           </div>
-          <div class="meter-meta" data-tauri-drag-region>
+          <div class="meter-meta">
             <div class="meter-title">Weekly Limit</div>
             <div id="reset-weekly" class="meter-reset">リセット: --</div>
             <div id="model-weekly" class="meter-model">待機中</div>
@@ -75,7 +75,7 @@
       </main>
 
       <!-- フッター -->
-      <footer class="gadget-footer" data-tauri-drag-region>
+      <footer class="gadget-footer">
         <div class="credit-badge" title="利用可能なPrompt Credits">
           <span class="credit-icon">⚡</span>
           <span id="credit-count">0</span> credits

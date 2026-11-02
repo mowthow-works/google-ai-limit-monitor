@@ -151,24 +151,27 @@ setInterval(() => {
   }
 }, 1000);
 
-// ウィンドウ全体のドラッグ移動ハンドラー
-document.addEventListener("mousedown", async (e) => {
-  // ボタンや操作可能要素のクリック時はドラッグをトリガーしない
-  if (e.target.closest("button") || e.target.closest(".icon-btn")) {
-    return;
-  }
-  // 左クリック時のみドラッグ開始
-  if (e.button === 0) {
-    const invoke = window.__TAURI__?.core?.invoke;
-    if (invoke) {
-      try {
-        await invoke("drag_window");
-      } catch (err) {
-        console.error("drag_window error:", err);
+// タイトルバー領域（Google AI Limits / PROバッジ周辺）のドラッグ移動ハンドラー
+const gadgetHeader = document.querySelector(".gadget-header");
+if (gadgetHeader) {
+  gadgetHeader.addEventListener("mousedown", async (e) => {
+    // 操作ボタン群のクリック時はドラッグをトリガーしない
+    if (e.target.closest("button") || e.target.closest(".icon-btn") || e.target.closest(".window-controls")) {
+      return;
+    }
+    // 左クリック時のみドラッグ開始
+    if (e.button === 0) {
+      const invoke = window.__TAURI__?.core?.invoke;
+      if (invoke) {
+        try {
+          await invoke("drag_window");
+        } catch (err) {
+          console.error("drag_window error:", err);
+        }
       }
     }
-  }
-});
+  });
+}
 
 // ウィンドウ制御ボタン
 btnRefresh.addEventListener("click", (e) => {
@@ -188,8 +191,8 @@ btnClose.addEventListener("click", async (e) => {
   if (invoke) await invoke("close_window");
 });
 
-// 初期読み込みと15秒ポーリング
+// 初期読み込みと10分ポーリング（手動更新も可能）
 window.addEventListener("DOMContentLoaded", () => {
   fetchStatus();
-  setInterval(fetchStatus, 15000);
+  setInterval(fetchStatus, 10 * 60 * 1000);
 });
