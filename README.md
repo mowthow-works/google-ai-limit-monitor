@@ -1,5 +1,9 @@
 # Google AI Limit Monitor (Windows Desktop Gadget)
 
+[![Release](https://img.shields.io/badge/version-v1.0.0-blue.svg)](https://github.com/mowthow-works/google-ai-limit-monitor/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg)](https://www.microsoft.com/windows)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Limit（5時間枠）」** および **「Weekly Limit（週間上限枠）」** の最新クォータ消費状況をデスクトップ上にリアルタイム表示する、Windows専用の常駐型デスクトップガジェットです。
 
 <div align="center">
@@ -48,6 +52,8 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 - 🔄 **完全自動検出 & ローカルRPC通信**:
   - ローカルで稼働している Language Server プロセスからポートと認証トークンを自動抽出し、専用RPC（`RetrieveUserQuotaSummary`）経由で最新データを10分ごとに自動取得（手動即時更新も可能）。
 - 🖱️ **スムーズなタイトルバードラッグ**: ウィンドウ上部のタイトルバー領域を掴んで画面上の任意の位置へ手軽に配置可能。
+- 🔒 **単一インスタンス制御 (Single Instance)**:
+  - exeを誤って複数回実行してもガジェットが重複起動しません。既存のガジェットウィンドウが自動的に最小化解除され、最前面にフォーカスされます。
 - 🧪 **デモ（エミュレーション）モード**:
   - タイトルバーのプランバッジ（`[PRO]`）をクリックすると、いつでも警告色（45% / 65%）表示をトグルで確認できます。
 
@@ -63,8 +69,10 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 
 ## 🚀 使い方
 
-### 1. 実行ファイルの起動
-`src-tauri/target/release/google-ai-limit-monitor.exe` をダブルクリックして起動します。
+### 1. ダウンロードと起動
+- [GitHub Releases](https://github.com/mowthow-works/google-ai-limit-monitor/releases/latest) から最新の `google-ai-limit-monitor.exe`（またはインストーラー）をダウンロードします。
+- ダウンロードした `.exe` をダブルクリックするだけで、インストール不要のポータブルガジェットとして即座に起動します。
+- （ローカルでソースからビルドした場合は、`src-tauri/target/release/google-ai-limit-monitor.exe` を直接起動できます）
 
 ### 2. ガジェットの操作
 - **タブ切り替え [Gemini / Argon / Claude & GPT]**: クリックで各モデルグループのクォータ表示を瞬時に切り替えます。
