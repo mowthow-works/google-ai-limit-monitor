@@ -1,4 +1,4 @@
-const CIRCUMFERENCE = 2 * Math.PI * 36; // r=36 -> ~226.195
+const CIRCUMFERENCE = 2 * Math.PI * 35; // r=35 -> ~219.911
 
 // DOM要素
 const statusDot = document.getElementById("status-dot");
@@ -6,11 +6,14 @@ const planBadge = document.getElementById("plan-badge");
 const lastUpdated = document.getElementById("last-updated");
 const creditCount = document.getElementById("credit-count");
 
+const card5h = document.getElementById("card-5h");
+const cardNo5h = document.getElementById("card-no-5h");
 const ring5h = document.getElementById("ring-5h");
 const val5h = document.getElementById("val-5h");
 const reset5h = document.getElementById("reset-5h");
 const model5h = document.getElementById("model-5h");
 
+const cardWeekly = document.getElementById("card-weekly");
 const ringWeekly = document.getElementById("ring-weekly");
 const valWeekly = document.getElementById("val-weekly");
 const resetWeekly = document.getElementById("reset-weekly");
@@ -20,29 +23,13 @@ const btnRefresh = document.getElementById("btn-refresh");
 const btnMinimize = document.getElementById("btn-minimize");
 const btnClose = document.getElementById("btn-close");
 
+const tabButtons = document.querySelectorAll(".tab-btn");
+
+let currentGroup = "gemini"; // "gemini" | "argon" | "claude"
+let cachedData = null;
 let fiveHourSeconds = 0;
 let weeklySeconds = 0;
 let demoMode = false;
-
-function applyDemoData() {
-  statusDot.className = "status-dot connected";
-  statusDot.title = "デモ表示中 (クリックで戻る)";
-  planBadge.textContent = "DEMO";
-  creditCount.textContent = "350";
-  lastUpdated.textContent = getLocalTimeString();
-
-  // 5-Hour Limit: 45% (アンバーオレンジ・注意)
-  fiveHourSeconds = 1 * 3600 + 24 * 60; // 1時間 24分
-  updateGauge(ring5h, val5h, 0.45, 45);
-  reset5h.textContent = `リセット: ${formatDuration(fiveHourSeconds)}`;
-  model5h.textContent = "Gemini 3.8 Flash";
-
-  // Weekly Limit: 18% (ネオンレッド・警告)
-  weeklySeconds = 1 * 86400 + 8 * 3600; // 1日 8時間
-  updateGauge(ringWeekly, valWeekly, 0.18, 18);
-  resetWeekly.textContent = `リセット: ${formatDuration(weeklySeconds)}`;
-  modelWeekly.textContent = "Gemini 4 Argon";
-}
 
 function getColorByPercent(pct) {
   if (pct >= 80) return "#10b981"; // エメラルドグリーン
@@ -80,10 +67,6 @@ function formatDuration(seconds) {
   return `${minutes}分`;
 }
 
-function cleanLabel(label) {
-  return (label || "").replace(/\s*\([^)]*\)$/, "").trim();
-}
-
 function getLocalTimeString() {
   const now = new Date();
   return now.toLocaleTimeString("ja-JP", {
@@ -92,6 +75,123 @@ function getLocalTimeString() {
     second: "2-digit",
     hour12: false,
   });
+}
+
+function findGroupData(groupKey) {
+  if (demoMode) {
+    if (groupKey === "gemini") {
+      return {
+        displayName: "Gemini Models",
+        modelName: "Gemini 3.8 Flash / Pro",
+        fiveHour: { fraction: 0.45, pct: 45, seconds: 1 * 3600 + 24 * 60 },
+        weekly: { fraction: 0.65, pct: 65, seconds: 3 * 86400 + 12 * 3600 },
+      };
+    } else if (groupKey === "argon") {
+      return {
+        displayName: "Gemini 4 Argon",
+        modelName: "Gemini 4 Argon",
+        fiveHour: null,
+        weekly: { fraction: 0.18, pct: 18, seconds: 1 * 86400 + 8 * 3600 },
+      };
+    } else {
+      return {
+        displayName: "Claude and GPT models",
+        modelName: "Claude Sonnet / Opus",
+        fiveHour: { fraction: 0.90, pct: 90, seconds: 2 * 3600 + 15 * 60 },
+        weekly: { fraction: 0.85, pct: 85, seconds: 5 * 86400 + 4 * 3600 },
+      };
+    }
+  }
+
+  if (!cachedData || !cachedData.groups) return null;
+
+  let targetGroup = null;
+  for (const g of cachedData.groups) {
+    const name = g.display_name.toLowerCase();
+    if (groupKey === "gemini" && name.includes("gemini") && !name.includes("argon")) {
+      targetGroup = g;
+      break;
+    } else if (groupKey === "argon" && name.includes("argon")) {
+      targetGroup = g;
+      break;
+    } else if (groupKey === "claude" && (name.includes("claude") || name.includes("gpt"))) {
+      targetGroup = g;
+      break;
+    }
+  }
+
+  if (!targetGroup) return null;
+
+  return {
+    displayName: targetGroup.display_name,
+    modelName:
+      groupKey === "gemini"
+        ? "Gemini 3.8 Flash"
+        : groupKey === "argon"
+        ? "Gemini 4 Argon"
+        : "Claude Sonnet 5.5",
+    fiveHour: targetGroup.five_hour_bucket
+      ? {
+          fraction: targetGroup.five_hour_bucket.remaining_fraction,
+          pct: targetGroup.five_hour_bucket.percentage,
+          seconds: targetGroup.five_hour_bucket.remaining_seconds,
+        }
+      : null,
+    weekly: targetGroup.weekly_bucket
+      ? {
+          fraction: targetGroup.weekly_bucket.remaining_fraction,
+          pct: targetGroup.weekly_bucket.percentage,
+          seconds: targetGroup.weekly_bucket.remaining_seconds,
+        }
+      : null,
+  };
+}
+
+function renderCurrentGroup() {
+  // タブのactive状態の更新
+  tabButtons.forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.group === currentGroup);
+  });
+
+  const groupData = findGroupData(currentGroup);
+
+  if (!groupData) {
+    updateGauge(ring5h, val5h, 1.0, 100);
+    reset5h.textContent = "リセット: --";
+    model5h.textContent = "待機中";
+    updateGauge(ringWeekly, valWeekly, 1.0, 100);
+    resetWeekly.textContent = "リセット: --";
+    modelWeekly.textContent = "待機中";
+    return;
+  }
+
+  // 5-Hour Limit または 5h枠なし表示
+  if (groupData.fiveHour) {
+    card5h.style.display = "flex";
+    cardNo5h.style.display = "none";
+    fiveHourSeconds = groupData.fiveHour.seconds;
+    updateGauge(ring5h, val5h, groupData.fiveHour.fraction, groupData.fiveHour.pct);
+    reset5h.textContent = `リセット: ${formatDuration(fiveHourSeconds)}`;
+    model5h.textContent = groupData.modelName;
+  } else {
+    // Argonなど5h制限なしの場合
+    card5h.style.display = "none";
+    cardNo5h.style.display = "flex";
+    fiveHourSeconds = 0;
+  }
+
+  // Weekly Limit
+  if (groupData.weekly) {
+    cardWeekly.style.display = "flex";
+    weeklySeconds = groupData.weekly.seconds;
+    updateGauge(ringWeekly, valWeekly, groupData.weekly.fraction, groupData.weekly.pct);
+    resetWeekly.textContent = `リセット: ${formatDuration(weeklySeconds)}`;
+    modelWeekly.textContent = groupData.modelName;
+  } else {
+    updateGauge(ringWeekly, valWeekly, 1.0, 100);
+    resetWeekly.textContent = "リセット: 正常";
+    modelWeekly.textContent = groupData.modelName;
+  }
 }
 
 async function fetchStatus() {
@@ -107,48 +207,20 @@ async function fetchStatus() {
     }
 
     const data = await invoke("get_quota_status");
+    cachedData = data;
 
     if (data.connected) {
       statusDot.className = "status-dot connected";
       statusDot.title = `接続中 (${data.email})`;
       planBadge.textContent = data.plan_name;
       creditCount.textContent = (data.prompt_credits || 0).toLocaleString();
-      // 日本時間（端末のローカル時刻）で表示
       lastUpdated.textContent = getLocalTimeString();
 
-      // 5-Hour Limit
-      if (data.five_hour_limit) {
-        const item = data.five_hour_limit;
-        fiveHourSeconds = item.remaining_seconds;
-        updateGauge(ring5h, val5h, item.remaining_fraction, item.percentage);
-        reset5h.textContent = `リセット: ${formatDuration(fiveHourSeconds)}`;
-        model5h.textContent = cleanLabel(item.label);
-      } else {
-        updateGauge(ring5h, val5h, 1.0, 100);
-        reset5h.textContent = "リセット: 正常";
-        model5h.textContent = "枠消費なし";
-      }
-
-      // Weekly Limit
-      if (data.weekly_limit) {
-        const item = data.weekly_limit;
-        weeklySeconds = item.remaining_seconds;
-        updateGauge(ringWeekly, valWeekly, item.remaining_fraction, item.percentage);
-        resetWeekly.textContent = `リセット: ${formatDuration(weeklySeconds)}`;
-        modelWeekly.textContent = cleanLabel(item.label);
-      } else {
-        updateGauge(ringWeekly, valWeekly, 1.0, 100);
-        resetWeekly.textContent = "リセット: 正常";
-        modelWeekly.textContent = "枠消費なし";
-      }
+      renderCurrentGroup();
     } else {
       statusDot.className = "status-dot disconnected";
       statusDot.title = data.status_message;
       planBadge.textContent = "待機中";
-      reset5h.textContent = "リセット: --";
-      resetWeekly.textContent = "リセット: --";
-      model5h.textContent = "未検出";
-      modelWeekly.textContent = "未検出";
       lastUpdated.textContent = getLocalTimeString();
     }
   } catch (err) {
@@ -173,11 +245,35 @@ setInterval(() => {
   }
 }, 1000);
 
-// タイトルバー領域（Google AI Limits / PROバッジ周辺）のドラッグ移動ハンドラー
+// タブ切り替えクリック
+tabButtons.forEach((btn) => {
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    currentGroup = btn.dataset.group;
+    renderCurrentGroup();
+  });
+});
+
+// プランバッジクリックでデモモード切り替え
+planBadge.addEventListener("click", (e) => {
+  e.stopPropagation();
+  demoMode = !demoMode;
+  if (demoMode) {
+    statusDot.className = "status-dot connected";
+    statusDot.title = "デモ表示中 (クリックで戻る)";
+    planBadge.textContent = "DEMO";
+    creditCount.textContent = "350";
+    lastUpdated.textContent = getLocalTimeString();
+    renderCurrentGroup();
+  } else {
+    fetchStatus();
+  }
+});
+
+// タイトルバー領域のドラッグ移動ハンドラー
 const gadgetHeader = document.querySelector(".gadget-header");
 if (gadgetHeader) {
   gadgetHeader.addEventListener("mousedown", async (e) => {
-    // 操作ボタン群およびバッジのクリック時はドラッグをトリガーしない
     if (
       e.target.closest("button") ||
       e.target.closest(".icon-btn") ||
@@ -186,7 +282,6 @@ if (gadgetHeader) {
     ) {
       return;
     }
-    // 左クリック時のみドラッグ開始
     if (e.button === 0) {
       const invoke = window.__TAURI__?.core?.invoke;
       if (invoke) {
@@ -199,17 +294,6 @@ if (gadgetHeader) {
     }
   });
 }
-
-// プランバッジクリックでデモモード（警告色表示）切り替え
-planBadge.addEventListener("click", (e) => {
-  e.stopPropagation();
-  demoMode = !demoMode;
-  if (demoMode) {
-    applyDemoData();
-  } else {
-    fetchStatus();
-  }
-});
 
 // ウィンドウ制御ボタン
 btnRefresh.addEventListener("click", (e) => {
@@ -229,7 +313,7 @@ btnClose.addEventListener("click", async (e) => {
   if (invoke) await invoke("close_window");
 });
 
-// 初期読み込みと10分ポーリング（手動更新も可能）
+// 初期読み込みと10分ポーリング
 window.addEventListener("DOMContentLoaded", () => {
   fetchStatus();
   setInterval(fetchStatus, 10 * 60 * 1000);

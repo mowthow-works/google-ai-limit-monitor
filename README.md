@@ -6,12 +6,22 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
   <table>
     <tr>
       <td align="center">
-        <b>🟢 通常・安全時 (80%〜)</b><br />
-        <img src="docs/screenshot.png" alt="Google AI Limit Monitor Normal" width="360" />
+        <b>⚡ Gemini Models</b><br />
+        <img src="docs/screenshot_gemini.png" alt="Gemini Models" width="300" />
       </td>
       <td align="center">
-        <b>🟡 注意 (30〜79%) / 🔴 警告 (〜29%)</b><br />
-        <img src="docs/screenshot_warning.png" alt="Google AI Limit Monitor Warning" width="360" />
+        <b>💎 Gemini 4 Argon</b><br />
+        <img src="docs/screenshot_argon.png" alt="Gemini 4 Argon" width="300" />
+      </td>
+    </tr>
+    <tr>
+      <td align="center">
+        <b>🤖 Claude & GPT models</b><br />
+        <img src="docs/screenshot_claude.png" alt="Claude and GPT models" width="300" />
+      </td>
+      <td align="center">
+        <b>🟡 注意・警告時 (DEMOモード)</b><br />
+        <img src="docs/screenshot_demo.png" alt="Demo Warning" width="300" />
       </td>
     </tr>
   </table>
@@ -22,9 +32,12 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 ## ✨ 主な特徴
 
 - 🪟 **デスクトップ常駐 & 常に最前面 (Always On Top)**: 開発作業中も画面の隅に常に配置され、クォータ残量をいつでも一目で確認できます。
+- 📑 **モデルグループ別のタブ切り替え対応**:
+  - Antigravity の実際のクォータ管理体系に完全対応し、3つのグループをワンクリックで切り替えて正確にモニタリング可能：
+    1. **Gemini**: 標準Gemini枠（5-Hour Limit: 89% & Weekly Limit: 94%）
+    2. **Argon**: 最先端思考モデル専用枠（Weekly Limit: 95% ※5h制限なし）
+    3. **Claude / GPT**: サードパーティモデル枠（5-Hour Limit: 100% & Weekly Limit: 100%）
 - 🎨 **洗練されたフロストガラス & デュアルメーターUI**:
-  - **5-Hour Limit（短期枠）**: Gemini Flash などのローリングリセット残量と次回リセットまでのカウントダウン
-  - **Weekly Limit（週間枠）**: Gemini Argon などの週間リセット残量と次回リセットまでのカウントダウン
   - **3段階のカラーゲージ変化**:
     - 🟢 **80% 〜 100% (安全)**: エメラルドグリーン
     - 🟡 **30% 〜 79% (注意)**: アンバーオレンジ
@@ -33,10 +46,10 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
   - Windows標準の Edge WebView2 を利用するため、常駐時のメモリ消費量はわずか数十MB。
   - 完成した `.exe` は単一ポータブル実行ファイルとして動作（Node.js や Python などのランタイム不要）。
 - 🔄 **完全自動検出 & ローカルRPC通信**:
-  - ローカルで稼働している Language Server プロセスからポートと認証トークンを自動抽出し、直接 Connect-RPC（`127.0.0.1`）経由で最新データを10分ごとに自動取得（手動即時更新も可能）。
+  - ローカルで稼働している Language Server プロセスからポートと認証トークンを自動抽出し、専用RPC（`RetrieveUserQuotaSummary`）経由で最新データを10分ごとに自動取得（手動即時更新も可能）。
 - 🖱️ **スムーズなタイトルバードラッグ**: ウィンドウ上部のタイトルバー領域を掴んで画面上の任意の位置へ手軽に配置可能。
 - 🧪 **デモ（エミュレーション）モード**:
-  - タイトルバーのプランバッジ（`[PRO]`）をクリックすると、いつでも警告色（45% / 18%）表示をトグルで確認できます。
+  - タイトルバーのプランバッジ（`[PRO]`）をクリックすると、いつでも警告色（45% / 65%）表示をトグルで確認できます。
 
 ---
 
@@ -54,6 +67,7 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 `src-tauri/target/release/google-ai-limit-monitor.exe` をダブルクリックして起動します。
 
 ### 2. ガジェットの操作
+- **タブ切り替え [Gemini / Argon / Claude & GPT]**: クリックで各モデルグループのクォータ表示を瞬時に切り替えます。
 - **移動**: ウィンドウ上部のタイトルバー（`Google AI Limits` 付近）をドラッグして画面上の自由な位置へ移動できます。
 - **更新 [↻]**: ボタンをクリックすると即座に最新のクォータ情報を再取得します。
 - **最小化 [_]**: タスクバーへ最小化します。

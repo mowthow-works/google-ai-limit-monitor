@@ -14,7 +14,7 @@
         <div class="brand-group" data-tauri-drag-region>
           <div id="status-dot" class="status-dot disconnected" title="未接続"></div>
           <span class="app-title" data-tauri-drag-region>Google AI Limits</span>
-          <span id="plan-badge" class="plan-badge" data-tauri-drag-region>--</span>
+          <span id="plan-badge" class="plan-badge" title="プラン / クリックでデモ切替">--</span>
         </div>
         <div class="window-controls">
           <button id="btn-refresh" class="icon-btn" title="今すぐ更新">
@@ -35,14 +35,21 @@
         </div>
       </header>
 
-      <!-- メインメーター -->
+      <!-- モデルグループ切り替えタブ -->
+      <nav class="group-tabs">
+        <button id="tab-gemini" class="tab-btn active" data-group="gemini">Gemini</button>
+        <button id="tab-argon" class="tab-btn" data-group="argon">Argon</button>
+        <button id="tab-claude" class="tab-btn" data-group="claude">Claude / GPT</button>
+      </nav>
+
+      <!-- メインメーターエリア -->
       <main class="meters-container">
-        <!-- 5-Hour Limit メーター -->
-        <div class="meter-card">
+        <!-- 5-Hour Limit メーターカード -->
+        <div id="card-5h" class="meter-card">
           <div class="gauge-wrapper">
-            <svg class="progress-ring" width="88" height="88">
-              <circle class="ring-bg" cx="44" cy="44" r="36" />
-              <circle id="ring-5h" class="ring-val" cx="44" cy="44" r="36" />
+            <svg class="progress-ring" width="86" height="86">
+              <circle class="ring-bg" cx="43" cy="43" r="35" />
+              <circle id="ring-5h" class="ring-val" cx="43" cy="43" r="35" />
             </svg>
             <div class="gauge-center">
               <span id="val-5h" class="gauge-percent">--%</span>
@@ -55,12 +62,19 @@
           </div>
         </div>
 
-        <!-- Weekly Limit メーター -->
-        <div class="meter-card">
+        <!-- 5h枠なし時の代替カード（Argon用） -->
+        <div id="card-no-5h" class="meter-card info-card" style="display: none;">
+          <div class="info-icon">💎</div>
+          <div class="info-title">No 5h Limit</div>
+          <div class="info-desc">ArgonはWeekly枠のみで運用されます</div>
+        </div>
+
+        <!-- Weekly Limit メーターカード -->
+        <div id="card-weekly" class="meter-card">
           <div class="gauge-wrapper">
-            <svg class="progress-ring" width="88" height="88">
-              <circle class="ring-bg" cx="44" cy="44" r="36" />
-              <circle id="ring-weekly" class="ring-val" cx="44" cy="44" r="36" />
+            <svg class="progress-ring" width="86" height="86">
+              <circle class="ring-bg" cx="43" cy="43" r="35" />
+              <circle id="ring-weekly" class="ring-val" cx="43" cy="43" r="35" />
             </svg>
             <div class="gauge-center">
               <span id="val-weekly" class="gauge-percent">--%</span>
