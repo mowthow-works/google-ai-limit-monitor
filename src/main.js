@@ -22,6 +22,27 @@ const btnClose = document.getElementById("btn-close");
 
 let fiveHourSeconds = 0;
 let weeklySeconds = 0;
+let demoMode = false;
+
+function applyDemoData() {
+  statusDot.className = "status-dot connected";
+  statusDot.title = "デモ表示中 (クリックで戻る)";
+  planBadge.textContent = "DEMO";
+  creditCount.textContent = "350";
+  lastUpdated.textContent = getLocalTimeString();
+
+  // 5-Hour Limit: 45% (アンバーオレンジ・注意)
+  fiveHourSeconds = 1 * 3600 + 24 * 60; // 1時間 24分
+  updateGauge(ring5h, val5h, 0.45, 45);
+  reset5h.textContent = `リセット: ${formatDuration(fiveHourSeconds)}`;
+  model5h.textContent = "Gemini 3.8 Flash";
+
+  // Weekly Limit: 18% (ネオンレッド・警告)
+  weeklySeconds = 1 * 86400 + 8 * 3600; // 1日 8時間
+  updateGauge(ringWeekly, valWeekly, 0.18, 18);
+  resetWeekly.textContent = `リセット: ${formatDuration(weeklySeconds)}`;
+  modelWeekly.textContent = "Gemini 4 Argon";
+}
 
 function getColorByPercent(pct) {
   if (pct >= 80) return "#10b981"; // エメラルドグリーン
@@ -74,6 +95,7 @@ function getLocalTimeString() {
 }
 
 async function fetchStatus() {
+  if (demoMode) return;
   btnRefresh.classList.add("spinning");
 
   try {
@@ -155,8 +177,13 @@ setInterval(() => {
 const gadgetHeader = document.querySelector(".gadget-header");
 if (gadgetHeader) {
   gadgetHeader.addEventListener("mousedown", async (e) => {
-    // 操作ボタン群のクリック時はドラッグをトリガーしない
-    if (e.target.closest("button") || e.target.closest(".icon-btn") || e.target.closest(".window-controls")) {
+    // 操作ボタン群およびバッジのクリック時はドラッグをトリガーしない
+    if (
+      e.target.closest("button") ||
+      e.target.closest(".icon-btn") ||
+      e.target.closest(".window-controls") ||
+      e.target.closest(".plan-badge")
+    ) {
       return;
     }
     // 左クリック時のみドラッグ開始
@@ -172,6 +199,17 @@ if (gadgetHeader) {
     }
   });
 }
+
+// プランバッジクリックでデモモード（警告色表示）切り替え
+planBadge.addEventListener("click", (e) => {
+  e.stopPropagation();
+  demoMode = !demoMode;
+  if (demoMode) {
+    applyDemoData();
+  } else {
+    fetchStatus();
+  }
+});
 
 // ウィンドウ制御ボタン
 btnRefresh.addEventListener("click", (e) => {

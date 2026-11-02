@@ -3,7 +3,18 @@
 Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Limit（5時間枠）」** および **「Weekly Limit（週間上限枠）」** の最新クォータ消費状況をデスクトップ上にリアルタイム表示する、Windows専用の常駐型デスクトップガジェットです。
 
 <div align="center">
-  <img src="docs/screenshot.png" alt="Google AI Limit Monitor Screenshot" width="400" />
+  <table>
+    <tr>
+      <td align="center">
+        <b>🟢 通常・安全時 (80%〜)</b><br />
+        <img src="docs/screenshot.png" alt="Google AI Limit Monitor Normal" width="360" />
+      </td>
+      <td align="center">
+        <b>🟡 注意 (30〜79%) / 🔴 警告 (〜29%)</b><br />
+        <img src="docs/screenshot_warning.png" alt="Google AI Limit Monitor Warning" width="360" />
+      </td>
+    </tr>
+  </table>
 </div>
 
 ---
@@ -14,13 +25,18 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 - 🎨 **洗練されたフロストガラス & デュアルメーターUI**:
   - **5-Hour Limit（短期枠）**: Gemini Flash などのローリングリセット残量と次回リセットまでのカウントダウン
   - **Weekly Limit（週間枠）**: Gemini Argon などの週間リセット残量と次回リセットまでのカウントダウン
-  - 残量に応じた動的なネオングローカラー変化（🟢 安全: 80%〜 / 🟡 注意: 30〜79% / 🔴 警告: 〜29%）
+  - **3段階のカラーゲージ変化**:
+    - 🟢 **80% 〜 100% (安全)**: エメラルドグリーン
+    - 🟡 **30% 〜 79% (注意)**: アンバーオレンジ
+    - 🔴 **0% 〜 29% (警告)**: ネオンレッド（枠枯渇寸前）
 - ⚡ **超軽量設計 (Tauri 2.0 + Rust)**:
   - Windows標準の Edge WebView2 を利用するため、常駐時のメモリ消費量はわずか数十MB。
   - 完成した `.exe` は単一ポータブル実行ファイルとして動作（Node.js や Python などのランタイム不要）。
 - 🔄 **完全自動検出 & ローカルRPC通信**:
   - ローカルで稼働している Language Server プロセスからポートと認証トークンを自動抽出し、直接 Connect-RPC（`127.0.0.1`）経由で最新データを10分ごとに自動取得（手動即時更新も可能）。
 - 🖱️ **スムーズなタイトルバードラッグ**: ウィンドウ上部のタイトルバー領域を掴んで画面上の任意の位置へ手軽に配置可能。
+- 🧪 **デモ（エミュレーション）モード**:
+  - タイトルバーのプランバッジ（`[PRO]`）をクリックすると、いつでも警告色（45% / 18%）表示をトグルで確認できます。
 
 ---
 
@@ -38,10 +54,11 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 `src-tauri/target/release/google-ai-limit-monitor.exe` をダブルクリックして起動します。
 
 ### 2. ガジェットの操作
-- **移動**: ウィンドウ上をマウスでドラッグすると、画面上の自由な位置へ移動できます。
+- **移動**: ウィンドウ上部のタイトルバー（`Google AI Limits` 付近）をドラッグして画面上の自由な位置へ移動できます。
 - **更新 [↻]**: ボタンをクリックすると即座に最新のクォータ情報を再取得します。
 - **最小化 [_]**: タスクバーへ最小化します。
 - **終了 [✕]**: ガジェットを終了します。
+- **デモ切り替え [PRO]**: バッジをクリックすると警告表示（オレンジ／赤）のエミュレーション表示を切り替えられます。
 
 ---
 
