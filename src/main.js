@@ -19,6 +19,9 @@ const valWeekly = document.getElementById("val-weekly");
 const resetWeekly = document.getElementById("reset-weekly");
 const modelWeekly = document.getElementById("model-weekly");
 
+const modelBadges = document.getElementById("model-badges");
+const modelCount = document.getElementById("model-count");
+
 const btnRefresh = document.getElementById("btn-refresh");
 const btnMinimize = document.getElementById("btn-minimize");
 const btnClose = document.getElementById("btn-close");
@@ -30,6 +33,19 @@ let cachedData = null;
 let fiveHourSeconds = 0;
 let weeklySeconds = 0;
 let demoMode = false;
+
+const DEMO_MODELS = [
+  { label: "Gemini 4 Argon (Medium)", model_id: "gemini-4-argon-medium", percentage: 18, is_recommended: true },
+  { label: "Gemini 4 Argon (High)", model_id: "gemini-4-argon-high", percentage: 18, is_recommended: true },
+  { label: "Gemini 4 Argon (Low)", model_id: "gemini-4-argon-low", percentage: 18, is_recommended: false },
+  { label: "Gemini 3.8 Flash (Medium)", model_id: "gemini-3-8-flash-medium", percentage: 45, is_recommended: true },
+  { label: "Gemini 3.8 Flash (Low)", model_id: "gemini-3-8-flash-low", percentage: 45, is_recommended: false },
+  { label: "Gemini 3.8 Pro (High)", model_id: "gemini-3-8-pro-high", percentage: 45, is_recommended: true },
+  { label: "Claude Sonnet 5.5 (Medium)", model_id: "claude-sonnet-5-5-medium", percentage: 90, is_recommended: true },
+  { label: "Claude Sonnet 5.5 (High)", model_id: "claude-sonnet-5-5-high", percentage: 90, is_recommended: false },
+  { label: "Claude Opus 5.5 (High)", model_id: "claude-opus-5-5-high", percentage: 90, is_recommended: true },
+  { label: "GPT-OSS 120B (Medium)", model_id: "gpt-oss-120b-medium", percentage: 90, is_recommended: false },
+];
 
 function getColorByPercent(pct) {
   if (pct >= 80) return "#10b981"; // エメラルドグリーン
@@ -77,12 +93,52 @@ function getLocalTimeString() {
   });
 }
 
+function getFilteredModels(groupKey) {
+  const models = demoMode ? DEMO_MODELS : (cachedData?.models || []);
+  return models.filter((m) => {
+    const text = `${m.label} ${m.model_id}`.toLowerCase();
+    if (groupKey === "gemini") {
+      return text.includes("gemini") && !text.includes("argon");
+    } else if (groupKey === "argon") {
+      return text.includes("argon");
+    } else if (groupKey === "claude") {
+      return text.includes("claude") || text.includes("gpt");
+    }
+    return false;
+  });
+}
+
+function renderModelBadges(groupKey) {
+  if (!modelBadges || !modelCount) return;
+  const filtered = getFilteredModels(groupKey);
+  modelBadges.innerHTML = "";
+
+  if (filtered.length === 0) {
+    modelCount.textContent = "0";
+    const span = document.createElement("span");
+    span.className = "model-badge empty";
+    span.textContent = "モデル情報なし";
+    modelBadges.appendChild(span);
+    return;
+  }
+
+  modelCount.textContent = `${filtered.length} models`;
+  filtered.forEach((m) => {
+    const badge = document.createElement("span");
+    badge.className = `model-badge ${m.is_recommended ? "recommended" : ""}`;
+    badge.textContent = m.label;
+    const pct = typeof m.percentage === "number" ? `${m.percentage.toFixed(0)}%` : "--%";
+    badge.title = `${m.model_id}\nクォータ残量: ${pct}`;
+    modelBadges.appendChild(badge);
+  });
+}
+
 function findGroupData(groupKey) {
   if (demoMode) {
     if (groupKey === "gemini") {
       return {
         displayName: "Gemini Models",
-        modelName: "Gemini 3.8 Flash / Pro",
+        modelName: "Gemini Models",
         fiveHour: { fraction: 0.45, pct: 45, seconds: 1 * 3600 + 24 * 60 },
         weekly: { fraction: 0.65, pct: 65, seconds: 3 * 86400 + 12 * 3600 },
       };
@@ -96,7 +152,7 @@ function findGroupData(groupKey) {
     } else {
       return {
         displayName: "Claude and GPT models",
-        modelName: "Claude Sonnet / Opus",
+        modelName: "Claude & GPT",
         fiveHour: { fraction: 0.90, pct: 90, seconds: 2 * 3600 + 15 * 60 },
         weekly: { fraction: 0.85, pct: 85, seconds: 5 * 86400 + 4 * 3600 },
       };
@@ -126,10 +182,10 @@ function findGroupData(groupKey) {
     displayName: targetGroup.display_name,
     modelName:
       groupKey === "gemini"
-        ? "Gemini 3.8 Flash"
+        ? "Gemini Models"
         : groupKey === "argon"
         ? "Gemini 4 Argon"
-        : "Claude Sonnet 5.5",
+        : "Claude & GPT",
     fiveHour: targetGroup.five_hour_bucket
       ? {
           fraction: targetGroup.five_hour_bucket.remaining_fraction,
@@ -152,6 +208,9 @@ function renderCurrentGroup() {
   tabButtons.forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.group === currentGroup);
   });
+
+  // モデルバッジ一覧の描画
+  renderModelBadges(currentGroup);
 
   const groupData = findGroupData(currentGroup);
 

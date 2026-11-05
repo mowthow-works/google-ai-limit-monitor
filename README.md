@@ -38,9 +38,12 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 - 🪟 **デスクトップ常駐 & 常に最前面 (Always On Top)**: 開発作業中も画面の隅に常に配置され、クォータ残量をいつでも一目で確認できます。
 - 📑 **モデルグループ別のタブ切り替え対応**:
   - Antigravity の実際のクォータ管理体系に完全対応し、3つのグループをワンクリックで切り替えて正確にモニタリング可能：
-    1. **Gemini**: 標準Gemini枠（5-Hour Limit: 89% & Weekly Limit: 94%）
-    2. **Argon**: 最先端思考モデル専用枠（Weekly Limit: 95% ※5h制限なし）
-    3. **Claude / GPT**: サードパーティモデル枠（5-Hour Limit: 100% & Weekly Limit: 100%）
+    1. **Gemini**: 標準Gemini枠（5-Hour Limit & Weekly Limit）
+    2. **Argon**: 最先端思考モデル専用枠（Weekly Limit ※5h制限なし）
+    3. **Claude / GPT**: サードパーティモデル枠（5-Hour Limit & Weekly Limit）
+- 🏷️ **最新モデル一覧の動的バッジ表示**:
+  - Language Server の `GetUserStatus` から最新の利用可能モデル（Gemini 4 Argon 各バリアント、Claude Sonnet/Opus 5.5、GPT-OSS 等）を動的に取得。
+  - 選択中のグループに属するモデルをタグ/バッジとして画面下部に一覧表示し、マウスホバーでモデルIDやクォータ残量（%）を確認可能。将来モデルが追加・更新された場合も自動で追従します。
 - 🎨 **洗練されたフロストガラス & デュアルメーターUI**:
   - **3段階のカラーゲージ変化**:
     - 🟢 **80% 〜 100% (安全)**: エメラルドグリーン

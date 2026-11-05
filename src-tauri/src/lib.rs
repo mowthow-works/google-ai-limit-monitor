@@ -20,6 +20,16 @@ pub struct BucketInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ModelInfo {
+    pub model_id: String,
+    pub label: String,
+    pub remaining_fraction: f64,
+    pub percentage: f64,
+    pub reset_time: String,
+    pub is_recommended: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct QuotaGroup {
     pub display_name: String,
     pub description: String,
@@ -36,6 +46,7 @@ pub struct QuotaStatus {
     pub email: String,
     pub updated_at: String,
     pub groups: Vec<QuotaGroup>,
+    pub models: Vec<ModelInfo>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -148,14 +159,16 @@ fn get_quota_status_blocking() -> QuotaStatus {
                 email: "".to_string(),
                 updated_at,
                 groups: Vec::new(),
+                models: Vec::new(),
             };
         }
     };
 
-    // 1. GetUserStatus からプラン名とクレジットを取得
+    // 1. GetUserStatus からプラン名、クレジット、モデル別一覧を取得
     let mut email = String::new();
     let mut plan_name = "Pro".to_string();
     let mut prompt_credits: i64 = 0;
+    let mut parsed_models = Vec::new();
 
     if let Ok(status_json) = fetch_rpc(&token, &ports, "GetUserStatus") {
         let user_status = &status_json["userStatus"];
@@ -167,6 +180,28 @@ fn get_quota_status_blocking() -> QuotaStatus {
         prompt_credits = user_status["planStatus"]["availablePromptCredits"]
             .as_i64()
             .unwrap_or(0);
+
+        if let Some(configs) = user_status["cascadeModelConfigData"]["clientModelConfigs"].as_array() {
+            for c in configs {
+                let label = c["label"].as_str().unwrap_or("").to_string();
+                let model_id = c["modelId"].as_str().unwrap_or("").to_string();
+                let is_recommended = c["isRecommended"].as_bool().unwrap_or(false);
+                let fraction = c["quotaInfo"]["remainingFraction"].as_f64().unwrap_or(1.0);
+                let percentage = (fraction * 1000.0).round() / 10.0;
+                let reset_time = c["quotaInfo"]["resetTime"].as_str().unwrap_or("").to_string();
+
+                if !label.is_empty() {
+                    parsed_models.push(ModelInfo {
+                        model_id,
+                        label,
+                        remaining_fraction: fraction,
+                        percentage,
+                        reset_time,
+                        is_recommended,
+                    });
+                }
+            }
+        }
     }
 
     // 2. RetrieveUserQuotaSummary から3グループの最新クォータ詳細を取得
@@ -181,6 +216,7 @@ fn get_quota_status_blocking() -> QuotaStatus {
                 email,
                 updated_at,
                 groups: Vec::new(),
+                models: parsed_models,
             };
         }
     };
@@ -245,6 +281,7 @@ fn get_quota_status_blocking() -> QuotaStatus {
         email,
         updated_at,
         groups: parsed_groups,
+        models: parsed_models,
     }
 }
 
@@ -262,6 +299,7 @@ async fn get_quota_status() -> QuotaStatus {
                 email: "".to_string(),
                 updated_at: now_local.format("%H:%M:%S").to_string(),
                 groups: Vec::new(),
+                models: Vec::new(),
             }
         })
 }

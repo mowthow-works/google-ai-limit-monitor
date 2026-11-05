@@ -41,7 +41,8 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 12px 14px 10px 14px;
+  padding: 10px 14px 9px 14px;
+  overflow: hidden;
 }
 
 /* ヘッダー（タイトルバー：ドラッグ領域） */
@@ -52,6 +53,7 @@ body {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   padding-bottom: 8px;
   cursor: grab;
+  flex-shrink: 0;
 }
 
 .gadget-header:active {
@@ -158,8 +160,9 @@ body {
   background: rgba(0, 0, 0, 0.25);
   padding: 3px;
   border-radius: 9px;
-  margin: 6px 0 4px 0;
+  margin: 5px 0 3px 0;
   border: 1px solid rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
 }
 
 .tab-btn {
@@ -193,7 +196,8 @@ body {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  margin: 4px 0;
+  margin: 3px 0;
+  flex-shrink: 0;
 }
 
 .meter-card {
@@ -310,15 +314,103 @@ body {
   max-width: 130px;
 }
 
+/* 対象モデルバッジセクション */
+.models-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 9px;
+  padding: 5px 8px;
+  margin: 3px 0 2px 0;
+  flex: 1;
+  min-height: 52px;
+  max-height: 72px;
+}
+
+.models-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.models-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.models-count {
+  font-size: 8.5px;
+  color: var(--text-sub);
+  font-variant-numeric: tabular-nums;
+}
+
+.model-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  overflow-y: auto;
+  padding-right: 2px;
+  flex: 1;
+}
+
+.model-badges::-webkit-scrollbar {
+  width: 3px;
+}
+
+.model-badges::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.model-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 9px;
+  font-weight: 500;
+  padding: 1.5px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.model-badge.recommended {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.35);
+  color: #c7d2fe;
+}
+
+.model-badge.empty {
+  color: var(--text-muted);
+  font-style: italic;
+  background: transparent;
+  border-color: transparent;
+  padding: 0;
+}
+
+.model-badge:not(.empty):hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
 /* フッター */
 .gadget-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding-top: 7px;
+  padding-top: 6px;
   font-size: 10px;
   color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 .credit-badge {
