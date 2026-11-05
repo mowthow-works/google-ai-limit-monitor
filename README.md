@@ -1,6 +1,6 @@
 # Google AI Limit Monitor (Windows Desktop Gadget)
 
-[![Release](https://img.shields.io/badge/version-v1.0.0-blue.svg)](https://github.com/mowthow-works/google-ai-limit-monitor/releases)
+[![Release](https://img.shields.io/badge/version-v1.1.0-blue.svg)](https://github.com/mowthow-works/google-ai-limit-monitor/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg)](https://www.microsoft.com/windows)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -44,6 +44,13 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 - 🏷️ **最新モデル一覧の動的バッジ表示**:
   - Language Server の `GetUserStatus` から最新の利用可能モデル（Gemini 4 Argon 各バリアント、Claude Sonnet/Opus 5.5、GPT-OSS 等）を動的に取得。
   - 選択中のグループに属するモデルをタグ/バッジとして画面下部に一覧表示し、マウスホバーでモデルIDやクォータ残量（%）を確認可能。将来モデルが追加・更新された場合も自動で追従します。
+- 📌 **タスクトレイ常駐 & クイックトグル**:
+  - ウィンドウ右上の「✕」ボタンを押すとアプリを終了せずタスクトレイに最小化格納。
+  - タスクトレイアイコンを左クリックするだけで、ガジェットの表示／非表示を素早く切り替えられます。
+- 🚀 **Windowsスタートアップ自動起動**:
+  - トレイアイコンの右クリックメニューから「Windows起動時に自動起動」の有効／無効をいつでもワンクリックで設定可能。
+- 📥 **NSISインストーラ対応**:
+  - 日本語・英語に対応したインストーラ（Setup.exe）および単一ポータブル実行ファイルに対応。
 - 🎨 **洗練されたフロストガラス & デュアルメーターUI**:
   - **3段階のカラーゲージ変化**:
     - 🟢 **80% 〜 100% (安全)**: エメラルドグリーン
@@ -82,8 +89,16 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 - **移動**: ウィンドウ上部のタイトルバー（`Google AI Limits` 付近）をドラッグして画面上の自由な位置へ移動できます。
 - **更新 [↻]**: ボタンをクリックすると即座に最新のクォータ情報を再取得します。
 - **最小化 [_]**: タスクバーへ最小化します。
-- **終了 [✕]**: ガジェットを終了します。
+- **トレイに格納 [✕]**: ウィンドウを閉じ、タスクトレイに格納します（バックグラウンド監視を継続）。
 - **デモ切り替え [PRO]**: バッジをクリックすると警告表示（オレンジ／赤）のエミュレーション表示を切り替えられます。
+
+### 3. タスクトレイメニュー
+- **左クリック**: ガジェットウィンドウの表示／非表示をトグルします。
+- **右クリックメニュー**:
+  - **表示 / 非表示**: ウィンドウの可視状態を切り替えます。
+  - **今すぐ更新**: クォータ情報を手動で即時再取得します。
+  - **Windows起動時に自動起動**: チェックを入れるとWindowsスタートアップに登録され、PC起動時に自動で立ち上がります。
+  - **終了**: アプリケーションを完全に終了します。
 
 ---
 

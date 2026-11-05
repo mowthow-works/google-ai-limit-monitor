@@ -2,7 +2,10 @@ use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::time::Duration;
-use tauri::Manager;
+use tauri::menu::{CheckMenuItem, Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, Manager};
+use tauri_plugin_autostart::ManagerExt;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -316,7 +319,7 @@ fn minimize_window(window: tauri::Window) {
 
 #[tauri::command]
 fn close_window(window: tauri::Window) {
-    let _ = window.close();
+    let _ = window.hide();
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -330,6 +333,106 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--autostart"]),
+        ))
+        .setup(|app| {
+            let handle = app.handle();
+
+            let is_autostart = handle.autolaunch().is_enabled().unwrap_or(false);
+            let item_autostart = CheckMenuItem::with_id(
+                handle,
+                "toggle_autostart",
+                "Windows起動時に自動起動",
+                true,
+                is_autostart,
+                None::<&str>,
+            )?;
+            let item_autostart_clone = item_autostart.clone();
+
+            let toggle_window = MenuItem::with_id(handle, "toggle_window", "表示 / 非表示", true, None::<&str>)?;
+            let refresh_quota = MenuItem::with_id(handle, "refresh_quota", "今すぐ更新", true, None::<&str>)?;
+            let quit = MenuItem::with_id(handle, "quit", "終了", true, None::<&str>)?;
+
+            let menu = Menu::with_items(
+                handle,
+                &[
+                    &toggle_window,
+                    &refresh_quota,
+                    &item_autostart,
+                    &quit,
+                ],
+            )?;
+
+            let mut tray_builder = TrayIconBuilder::new()
+                .menu(&menu)
+                .tooltip("Google AI Limit Monitor")
+                .show_menu_on_left_click(false);
+
+            if let Some(icon) = app.default_window_icon() {
+                tray_builder = tray_builder.icon(icon.clone());
+            }
+
+            let _tray = tray_builder
+                .on_menu_event(move |app, event| match event.id.as_ref() {
+                    "toggle_window" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            if window.is_visible().unwrap_or(false) {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                    "refresh_quota" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.emit("trigger-refresh", ());
+                        }
+                    }
+                    "toggle_autostart" => {
+                        let autolaunch = app.autolaunch();
+                        let currently_enabled = autolaunch.is_enabled().unwrap_or(false);
+                        if currently_enabled {
+                            if autolaunch.disable().is_ok() {
+                                let _ = item_autostart_clone.set_checked(false);
+                            }
+                        } else {
+                            if autolaunch.enable().is_ok() {
+                                let _ = item_autostart_clone.set_checked(true);
+                            }
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            if window.is_visible().unwrap_or(false) {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                })
+                .build(handle)?;
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_quota_status,
             drag_window,

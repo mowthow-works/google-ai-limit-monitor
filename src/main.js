@@ -376,4 +376,11 @@ btnClose.addEventListener("click", async (e) => {
 window.addEventListener("DOMContentLoaded", () => {
   fetchStatus();
   setInterval(fetchStatus, 10 * 60 * 1000);
+
+  // トレイメニュー等からの即時更新イベントを受信
+  if (window.__TAURI__?.event?.listen) {
+    window.__TAURI__.event.listen("trigger-refresh", () => {
+      fetchStatus();
+    });
+  }
 });
