@@ -1,14 +1,100 @@
 use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct AppConfig {
+    #[serde(default)]
+    pub autostart_enabled: Option<bool>,
+}
+
+fn get_config_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("Path error: {}", e))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("Create dir error: {}", e))?;
+    Ok(dir.join("config.json"))
+}
+
+fn load_config(app: &AppHandle) -> AppConfig {
+    if let Ok(path) = get_config_path(app) {
+        if path.exists() {
+            if let Ok(content) = fs::read_to_string(&path) {
+                if let Ok(cfg) = serde_json::from_str::<AppConfig>(&content) {
+                    return cfg;
+                }
+            }
+        }
+    }
+    AppConfig::default()
+}
+
+fn save_config(app: &AppHandle, config: &AppConfig) -> Result<(), String> {
+    let path = get_config_path(app)?;
+    let content = serde_json::to_string_pretty(config)
+        .map_err(|e| format!("Serialize error: {}", e))?;
+    fs::write(&path, content).map_err(|e| format!("Write error: {}", e))?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AutostartReconcilePlan {
+    pub desired_enabled: bool,
+    pub should_save_config: bool,
+    pub should_apply_os: bool,
+}
+
+pub fn plan_autostart_reconciliation(saved: Option<bool>, os_enabled: bool) -> AutostartReconcilePlan {
+    match saved {
+        None => AutostartReconcilePlan {
+            desired_enabled: os_enabled,
+            should_save_config: true,
+            should_apply_os: false,
+        },
+        Some(desired) => AutostartReconcilePlan {
+            desired_enabled: desired,
+            should_save_config: false,
+            should_apply_os: desired != os_enabled,
+        },
+    }
+}
+
+fn sync_autostart_on_startup(app: &AppHandle) -> bool {
+    let mut config = load_config(app);
+    let autolaunch = app.autolaunch();
+    let os_enabled = autolaunch.is_enabled().unwrap_or(false);
+    let plan = plan_autostart_reconciliation(config.autostart_enabled, os_enabled);
+
+    if plan.should_save_config {
+        config.autostart_enabled = Some(plan.desired_enabled);
+        let _ = save_config(app, &config);
+    }
+
+    if plan.should_apply_os {
+        let apply_res = if plan.desired_enabled {
+            autolaunch.enable()
+        } else {
+            autolaunch.disable()
+        };
+        if apply_res.is_ok() {
+            return plan.desired_enabled;
+        }
+        return os_enabled;
+    }
+
+    plan.desired_enabled
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BucketInfo {
@@ -340,7 +426,8 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle();
 
-            let is_autostart = handle.autolaunch().is_enabled().unwrap_or(false);
+            // スタートアップ自動起動の初期化・永続化同期 (Issue #14)
+            let is_autostart = sync_autostart_on_startup(handle);
             let item_autostart = CheckMenuItem::with_id(
                 handle,
                 "toggle_autostart",
@@ -398,10 +485,16 @@ pub fn run() {
                         if currently_enabled {
                             if autolaunch.disable().is_ok() {
                                 let _ = item_autostart_clone.set_checked(false);
+                                let mut cfg = load_config(app);
+                                cfg.autostart_enabled = Some(false);
+                                let _ = save_config(app, &cfg);
                             }
                         } else {
                             if autolaunch.enable().is_ok() {
                                 let _ = item_autostart_clone.set_checked(true);
+                                let mut cfg = load_config(app);
+                                cfg.autostart_enabled = Some(true);
+                                let _ = save_config(app, &cfg);
                             }
                         }
                     }
@@ -441,4 +534,68 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_plan_autostart_reconciliation() {
+        // 初回移行時（config 未保存）は OS の現在状態を取り込んで config に保存する
+        assert_eq!(
+            plan_autostart_reconciliation(None, true),
+            AutostartReconcilePlan {
+                desired_enabled: true,
+                should_save_config: true,
+                should_apply_os: false,
+            }
+        );
+        assert_eq!(
+            plan_autostart_reconciliation(None, false),
+            AutostartReconcilePlan {
+                desired_enabled: false,
+                should_save_config: true,
+                should_apply_os: false,
+            }
+        );
+
+        // config が true なのに OS 側が消えている（バージョンアップ時など）は自動復元する
+        assert_eq!(
+            plan_autostart_reconciliation(Some(true), false),
+            AutostartReconcilePlan {
+                desired_enabled: true,
+                should_save_config: false,
+                should_apply_os: true,
+            }
+        );
+
+        // config と OS 側が一致していれば何もしない
+        assert_eq!(
+            plan_autostart_reconciliation(Some(true), true),
+            AutostartReconcilePlan {
+                desired_enabled: true,
+                should_save_config: false,
+                should_apply_os: false,
+            }
+        );
+        assert_eq!(
+            plan_autostart_reconciliation(Some(false), false),
+            AutostartReconcilePlan {
+                desired_enabled: false,
+                should_save_config: false,
+                should_apply_os: false,
+            }
+        );
+
+        // config が false なのに OS 側が有効な場合は無効化して同期する
+        assert_eq!(
+            plan_autostart_reconciliation(Some(false), true),
+            AutostartReconcilePlan {
+                desired_enabled: false,
+                should_save_config: false,
+                should_apply_os: true,
+            }
+        );
+    }
 }
