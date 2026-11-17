@@ -78,11 +78,32 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 
 ---
 
+## 📥 インストール
+
+[Releases](https://github.com/mowthow-works/google-ai-limit-monitor/releases) からインストーラ（`Google-AI-Limit-Monitor_x64-setup.exe`）またはポータブル版 ZIP（`google-ai-limit-monitor-windows-x64.zip`）をダウンロードして実行してください。インストーラは管理者権限不要（Per-user インストール）で、デスクトップショートカット・スタートメニュー登録とアンインストーラが自動構成されます。
+
+### Windows SmartScreen 警告が出た場合
+
+ダウンロードしたインストーラやポータブル版の実行時に **「Windows によって PC が保護されました」** という青い画面が表示される場合があります。これは、個人開発・オープンソースの新しいバイナリに対して SmartScreen が「ダウンロード実績がまだ少ない未知のアプリ」として機械的に表示する安全確認の画面です。以下の手順でそのままインストール・起動できます。
+
+<div align="center">
+  <img src="docs/smartscreen_warning.png" alt="Windows SmartScreen 警告画面" width="340" />
+</div>
+
+1. 警告画面の左上にある **「詳細情報」**（下線リンク）をクリックします。
+2. 画面右下に現れる **「実行」** ボタンをクリックします。
+3. 通常通りセットアップ画面（またはアプリ）が起動します。
+
+> [!TIP]
+> ダウンロードした `.exe` ファイルを右クリック ➜ **「プロパティ」** を開き、全般タブの一番下にある **「セキュリティ: 許可する」**（または「ブロックの解除」）にチェックを入れて「OK」を押すことでも警告を回避できます。
+
+---
+
 ## 🚀 使い方
 
-### 1. ダウンロードと起動
-- [GitHub Releases](https://github.com/mowthow-works/google-ai-limit-monitor/releases/latest) から最新の `google-ai-limit-monitor.exe`（またはインストーラー）をダウンロードします。
-- ダウンロードした `.exe` をダブルクリックするだけで、インストール不要のポータブルガジェットとして即座に起動します。
+### 1. 起動と初回セットアップ
+- **インストーラ版（推奨）**: `Google-AI-Limit-Monitor_x64-setup.exe` を実行してインストール後、デスクトップショートカットまたはスタートメニューから起動します。
+- **ポータブル版**: `google-ai-limit-monitor-windows-x64.zip` を任意のフォルダに展開し、中の `google-ai-limit-monitor.exe` をダブルクリックするだけで、インストール不要のポータブルガジェットとして即座に起動します。
 - （ローカルでソースからビルドした場合は、`src-tauri/target/release/google-ai-limit-monitor.exe` を直接起動できます）
 
 ### 2. ガジェットの操作
@@ -121,15 +142,30 @@ npm run dev
 cargo run --manifest-path src-tauri/Cargo.toml
 ```
 
-### リリースバイナリのビルド
+### 自動テストの実行
 ```powershell
-npm run build
-# または
-cargo build --release --manifest-path src-tauri/Cargo.toml
+# Rustバックエンド単体テスト
+npm run test:rust
 ```
-ビルド完了後、`src-tauri/target/release/google-ai-limit-monitor.exe` に単一実行ファイルが生成されます。
+
+### プロダクションビルド
+
+ポータブル単体実行ファイル（手動配置・ZIP 配布向け）：
+```powershell
+cargo build --release --manifest-path "src-tauri/Cargo.toml"
+# 生成先: src-tauri/target/release/google-ai-limit-monitor.exe
+```
+
+NSIS セットアップインストーラ（一般配布向け）：
+```powershell
+npm run build:installer
+# または
+npx tauri build
+# 生成先: src-tauri/target/release/bundle/nsis/Google AI Limit Monitor_<version>_x64-setup.exe
+```
 
 ---
 
 ## 📜 ライセンス
-MIT License
+
+[MIT License](LICENSE) © 2026 mowthow-works

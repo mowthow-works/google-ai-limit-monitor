@@ -1,0 +1,53 @@
+# AGENTS.md - Google AI Limit Monitor 開発・運用ルール
+
+本ファイルは、AI エージェントが本リポジトリ（`google-ai-limit-monitor`）で開発・ビルド・リリース作業を行う際に必ず遵守すべきプロジェクト固有ルールを定義します。
+
+---
+
+## 1. ゴミファイル（不要な成果物・一時ファイル）残存防止ルール
+
+ビルド、パッケージング、ドキュメント更新、および GitHub Release 作業を行う際は、**ワークスペース内に古いファイルや一時ファイルのゴミが絶対に残らないよう** 以下を徹底すること：
+
+1. **配布用 ZIP アーカイブの整理（ルートディレクトリ）**
+   - 配布用 ZIP（`google-ai-limit-monitor-windows-x64.zip`）を作成・配置する際は、直前に必ず古いバージョン付き ZIP ファイル（`*-v*.zip`）や既存の同名 ZIP を削除・上書きすること。
+2. **`dist/` フォルダの最新化またはクリーンアップ**
+   - `dist/` フォルダが存在する場合、リリースビルド完了時に必ず `dist/google-ai-limit-monitor.exe`、`dist/README.md`、`dist/LICENSE` を最新ビルドの成果物で上書き更新すること（古いバージョンの `.exe` を放置しない）。
+3. **ドキュメント・画像差し替え時の不要ファイル削除（`docs/` 等）**
+   - `README.md` 等のスクリーンショットやアセットを新しいファイル名で追加・差し替えた場合は、参照されなくなった古い画像ファイル（例: 旧 UI のスクリーンショット等）を速やかに `git rm` / 削除すること。
+4. **一時ファイル（JSON ペイロード等）の即時削除**
+   - GitHub REST API 送信用の UTF-8 JSON ファイル（`issue_payload.json`, `release_payload.json` 等）やパッケージング用の一時ステージングフォルダは、リポジトリルートに作成せず一時ディレクトリ（スクラッチ領域または `$env:TEMP`）に作成し、使用後は速やかに削除すること。
+
+---
+
+## 2. Git / GitHub Issue / Release 運用ルール
+
+- 作業を開始する前に、何をするのかユーザーへメッセージを出力してから着手すること。
+- Git リポジトリのコード・ドキュメントを変更する場合は、先に GitHub Issue を発行し、ユーザーの確認を得てから作業を進めること。
+- Git コミットはユーザーの動作確認・レビュー承認後に実施し、日本語のコミットメッセージに `(Closes #<Issue番号>)` を含めること。
+- `README.md` に記載された仕様・画面・設定に関連する変更を行った場合は、必ず `README.md`（および `dist/README.md`）を同期更新すること。
+- 公開ドキュメントやソースコード内にファイルパスを記載する場合は、リポジトリルートからの相対パスを記載すること。
+
+---
+
+## 3. ビルド・動作確認ルール（Debug vs Release）
+
+- **開発・各 Issue の動作確認時**:
+  - ビルド時間の短縮のため、**Debug ビルド（`cargo build --manifest-path src-tauri/Cargo.toml`）** で実施し、生成された `src-tauri/target/debug/google-ai-limit-monitor.exe` を `dist/google-ai-limit-monitor.exe` へ配置して動作確認を行うこと（配布用 ZIP やインストーラの作成は通常不要）。
+- **Release 時（インストーラ・配布パッケージ作成時）**:
+  - **Release ビルドおよびインストーラ作成（`npm run build:installer` / `npx tauri build`）** を行い、最適化された `.exe` を `dist/` へ上書き配置し、配布用 ZIP アーカイブおよび NSIS セットアップインストーラを作成・Release へ添付すること。
+  - **Release 添付アセットの固定名統一ルール**:
+    - 固定ダウンロードリンク（`releases/latest/download/...`）運用のため、GitHub Release へ添付するアセットは**バージョン番号を含まない固定名（無印）のみ**とし、版付きアセットは添付しないこと。
+      - インストーラ：`Google-AI-Limit-Monitor_x64-setup.exe`（ビルド生成物 `src-tauri/target/release/bundle/nsis/Google AI Limit Monitor_<version>_x64-setup.exe` を当該固定名でアップロード）
+      - ZIP アーカイブ：`google-ai-limit-monitor-windows-x64.zip`
+  - **Release 前ドキュメント同期チェックリスト**（ビルド・タグ打ちの前に必ず確認すること）：
+    1. `git log <前回タグ>..HEAD --oneline` で対象バージョンの全変更（Issue）を洗い出す。
+    2. `README.md` のバージョンバッジ（`version-vX.Y.Z`）および記載内容を最新化し、`dist/README.md` へ同期する。
+    3. `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` のバージョン番号を一致させる。
+
+---
+
+## 4. 自動テスト運用ルール
+
+- **Rust バックエンド単体テスト (`npm run test:rust`)**
+  - 対象: `src-tauri/src/lib.rs`（自動起動設定の再調整・永続化ロジック等）
+- Rust コード（`.rs`）を変更した場合は、ユーザーへ動作確認を依頼する前に **必ず `npm run test:rust` を実行し、全テストがパスすることを確認** すること。

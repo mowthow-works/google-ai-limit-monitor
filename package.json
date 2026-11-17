@@ -3,11 +3,15 @@
   "private": true,
   "version": "1.1.1",
   "description": "Desktop gadget for Windows to monitor Google AI (Antigravity/Gemini) 5-Hour and Weekly limits",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
-    "tauri": "tauri"
+    "build:debug": "tauri build --debug",
+    "build:installer": "tauri build",
+    "tauri": "tauri",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
