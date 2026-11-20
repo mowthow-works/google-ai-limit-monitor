@@ -1,31 +1,38 @@
-# Google AI Limit Monitor (Windows Desktop Gadget)
+# <img src="src-tauri/icons/128x128.png" alt="Google AI Limit Monitor Icon" width="36" valign="middle" /> Google AI Limit Monitor (Windows Desktop Gadget)
 
-[![Release](https://img.shields.io/badge/version-v1.1.2-blue.svg)](https://github.com/mowthow-works/google-ai-limit-monitor/releases)
+[![Release](https://img.shields.io/badge/version-v1.1.3-blue.svg)](https://github.com/mowthow-works/google-ai-limit-monitor/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg)](https://www.microsoft.com/windows)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Limit（5時間枠）」** および **「Weekly Limit（週間上限枠）」** の最新クォータ消費状況をデスクトップ上にリアルタイム表示する、Windows専用の常駐型デスクトップガジェットです。
 
 <div align="center">
+  <img src="docs/screenshot_gemini.png" alt="Google AI Limit Monitor (Gemini タブ・注意表示)" width="340" />
+</div>
+
+---
+
+## 📸 スクリーンショット
+
+残量に応じてゲージカラーが **安全（緑）→ 注意（黄）→ 警告（赤）** の3段階で変化し、モデルグループごとにタブで切り替えて確認できます。
+
+<div align="center">
   <table>
     <tr>
-      <td align="center">
-        <b>⚡ Gemini Models</b><br />
-        <img src="docs/screenshot_gemini.png" alt="Gemini Models" width="300" />
+      <td align="center" width="33%">
+        <b>🟢 安全 (80%〜100%)</b><br />
+        <sub>Claude / GPT タブ</sub><br />
+        <img src="docs/screenshot_claude.png" alt="Claude / GPT タブ（安全表示）" width="260" />
       </td>
-      <td align="center">
-        <b>💎 Gemini 4 Argon</b><br />
-        <img src="docs/screenshot_argon.png" alt="Gemini 4 Argon" width="300" />
+      <td align="center" width="33%">
+        <b>🟡 注意 (30%〜79%)</b><br />
+        <sub>Gemini タブ</sub><br />
+        <img src="docs/screenshot_gemini.png" alt="Gemini タブ（注意表示）" width="260" />
       </td>
-    </tr>
-    <tr>
-      <td align="center">
-        <b>🤖 Claude & GPT models</b><br />
-        <img src="docs/screenshot_claude.png" alt="Claude and GPT models" width="300" />
-      </td>
-      <td align="center">
-        <b>🟡 注意・警告時 (DEMOモード)</b><br />
-        <img src="docs/screenshot_demo.png" alt="Demo Warning" width="300" />
+      <td align="center" width="33%">
+        <b>🔴 警告 (0%〜29%)</b><br />
+        <sub>Argon タブ（Weekly 専用）</sub><br />
+        <img src="docs/screenshot_argon.png" alt="Argon タブ（警告表示）" width="260" />
       </td>
     </tr>
   </table>
@@ -35,38 +42,29 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 
 ## ✨ 主な特徴
 
+### 表示・UI
 - 🪟 **デスクトップ常駐 & 常に最前面 (Always On Top)**: 開発作業中も画面の隅に常に配置され、クォータ残量をいつでも一目で確認できます。
-- 📑 **モデルグループ別のタブ切り替え対応**:
-  - Antigravity の実際のクォータ管理体系に完全対応し、3つのグループをワンクリックで切り替えて正確にモニタリング可能：
-    1. **Gemini**: 標準Gemini枠（5-Hour Limit & Weekly Limit）
-    2. **Argon**: 最先端思考モデル専用枠（Weekly Limit ※5h制限なし）
-    3. **Claude / GPT**: サードパーティモデル枠（5-Hour Limit & Weekly Limit）
-- 🏷️ **最新モデル一覧の動的バッジ表示**:
-  - Language Server の `GetUserStatus` から最新の利用可能モデル（Gemini 4 Argon 各バリアント、Claude Sonnet/Opus 5.5、GPT-OSS 等）を動的に取得。
-  - 選択中のグループに属するモデルをタグ/バッジとして画面下部に一覧表示し、マウスホバーでモデルIDやクォータ残量（%）を確認可能。将来モデルが追加・更新された場合も自動で追従します。
-- 📌 **タスクトレイ常駐 & クイックトグル**:
-  - ウィンドウ右上の「✕」ボタンを押すとアプリを終了せずタスクトレイに最小化格納。
-  - タスクトレイアイコンを左クリックするだけで、ガジェットの表示／非表示を素早く切り替えられます。
-- 🚀 **Windowsスタートアップ自動起動（設定永続化・自動復元対応）**:
-  - トレイアイコンの右クリックメニューから「Windows起動時に自動起動」の有効／無効をいつでもワンクリックで設定可能。
-  - 設定内容は `%APPDATA%\com.google.ai.limit.monitor\config.json` に永続化されており、バージョンアップ（上書きインストール）等でWindowsスタートアップレジストリが消去されても、次回起動時に自動で再登録（復元）されます。
-- 📥 **NSISインストーラ対応**:
-  - 日本語・英語に対応したインストーラ（Setup.exe）および単一ポータブル実行ファイルに対応。
-- 🎨 **洗練されたフロストガラス & デュアルメーターUI**:
-  - **3段階のカラーゲージ変化**:
-    - 🟢 **80% 〜 100% (安全)**: エメラルドグリーン
-    - 🟡 **30% 〜 79% (注意)**: アンバーオレンジ
-    - 🔴 **0% 〜 29% (警告)**: ネオンレッド（枠枯渇寸前）
-- ⚡ **超軽量設計 (Tauri 2.0 + Rust)**:
-  - Windows標準の Edge WebView2 を利用するため、常駐時のメモリ消費量はわずか数十MB。
-  - 完成した `.exe` は単一ポータブル実行ファイルとして動作（Node.js や Python などのランタイム不要）。
-- 🔄 **完全自動検出 & ローカルRPC通信**:
-  - ローカルで稼働している Language Server プロセスからポートと認証トークンを自動抽出し、専用RPC（`RetrieveUserQuotaSummary`）経由で最新データを10分ごとに自動取得（手動即時更新も可能）。
-- 🖱️ **スムーズなタイトルバードラッグ**: ウィンドウ上部のタイトルバー領域を掴んで画面上の任意の位置へ手軽に配置可能。
-- 🔒 **単一インスタンス制御 (Single Instance)**:
-  - exeを誤って複数回実行してもガジェットが重複起動しません。既存のガジェットウィンドウが自動的に最小化解除され、最前面にフォーカスされます。
-- 🧪 **デモ（エミュレーション）モード**:
-  - タイトルバーのプランバッジ（`[PRO]`）をクリックすると、いつでも警告色（45% / 65%）表示をトグルで確認できます。
+- 📑 **モデルグループ別のタブ切り替え対応**: Antigravity のクォータ管理体系に合わせ、3つのグループをワンクリックで切り替えてモニタリングできます。
+  1. **Gemini**: 標準 Gemini 枠（5-Hour Limit & Weekly Limit）
+  2. **Argon**: 最先端思考モデル専用枠（Weekly Limit ※5h 制限なし）
+  3. **Claude / GPT**: サードパーティモデル枠（5-Hour Limit & Weekly Limit）
+- 🏷️ **最新モデル一覧の動的バッジ表示**: Language Server の `GetUserStatus` から最新の利用可能モデルを動的に取得し、選択中のグループに属するモデルを画面下部へ一覧表示します（ホバーでモデル ID や残量 % を確認可能）。
+- 🎨 **洗練されたフロストガラス & 3段階カラーゲージ**: 残量に応じて **🟢 80〜100%（安全）** / **🟡 30〜79%（注意）** / **🔴 0〜29%（警告）** へ変化します。
+- 🖱️ **スムーズなタイトルバードラッグ**: ウィンドウ上部のタイトルバー領域を掴んで画面上の任意の位置へ手軽に配置できます。
+
+### 常駐まわり
+- 📌 **タスクトレイ常駐 & クイックトグル**: ウィンドウ右上の「✕」でアプリを終了せずタスクトレイへ格納し、トレイアイコンの左クリックで表示／非表示を素早く切り替えられます。
+- 🚀 **Windows スタートアップ自動起動（設定永続化・自動復元対応）**: トレイの右クリックメニューからワンクリックで設定でき、設定は `%APPDATA%\com.google.ai.limit.monitor\config.json` に保存されます。上書きインストール等でレジストリが消去されても、次回起動時に自動で復元されます。
+- 🔒 **単一インスタンス制御 (Single Instance)**: `.exe` を重複して起動しても多重起動せず、既存ウィンドウが自動で最小化解除・最前面フォーカスされます。
+
+### 取得の仕組み
+- 🆕 **Antigravity 2.x 対応**: Antigravity 2.x（`language_server.exe`）の新仕様に対応し、`%USERPROFILE%\.gemini\antigravity\daemon\hub_*.json` から稼働中プロセスの接続情報を自動検出します。従来の `--csrf_token` コマンドライン引数による検出（Antigravity 1.x）もフォールバックとして維持しています。
+- 🔄 **完全自動検出 & ローカル RPC 通信**: 検出したローカルポートと CSRF トークンを用い、ローカルホスト上の RPC（`GetUserStatus` / `RetrieveUserQuotaSummary`）から10分ごとに自動取得します（手動即時更新も可能）。
+
+### その他
+- 📥 **NSIS インストーラ & ポータブル版対応**: 日本語・英語に対応した Setup インストーラと、展開するだけのポータブル版 ZIP の両方を提供しています。
+- ⚡ **超軽量設計 (Tauri 2.0 + Rust)**: Windows 標準の Edge WebView2 を利用するためメモリ消費が少なく、Node.js や Python などのランタイムも不要です。
+- 🧪 **デモ（エミュレーション）モード**: タイトルバーのプランバッジ（`[PRO]` 等）をクリックすると、注意・警告色表示をいつでもテスト確認できます。
 
 ---
 
@@ -74,7 +72,7 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 
 - **OS**: Windows 10 / 11 (64-bit)
 - **ランタイム**: Microsoft Edge WebView2（Windows 10/11 に標準搭載）
-- **対象環境**: Google Antigravity / Gemini 開発者環境（Language Server がローカルで稼働していること）
+- **対象環境**: Google Antigravity 2.x（および 1.x）環境（ローカルで Language Server が稼働していること）
 
 ---
 
@@ -112,19 +110,37 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 - **更新 [↻]**: ボタンをクリックすると即座に最新のクォータ情報を再取得します。
 - **最小化 [_]**: タスクバーへ最小化します。
 - **トレイに格納 [✕]**: ウィンドウを閉じ、タスクトレイに格納します（バックグラウンド監視を継続）。
-- **デモ切り替え [PRO]**: バッジをクリックすると警告表示（オレンジ／赤）のエミュレーション表示を切り替えられます。
+- **デモ切り替え [PRO]**: バッジをクリックすると注意／警告表示のエミュレーション表示を切り替えられます。
 
 ### 3. タスクトレイメニュー
 - **左クリック**: ガジェットウィンドウの表示／非表示をトグルします。
 - **右クリックメニュー**:
   - **表示 / 非表示**: ウィンドウの可視状態を切り替えます。
   - **今すぐ更新**: クォータ情報を手動で即時再取得します。
-  - **Windows起動時に自動起動**: チェックを入れるとWindowsスタートアップに登録され、PC起動時に自動で立ち上がります（設定は `AppData\Roaming\com.google.ai.limit.monitor\config.json` に保存され、アップデート時も自動復元されます）。
+  - **Windows起動時に自動起動**: チェックを入れると Windows スタートアップに登録され、PC 起動時に自動で立ち上がります（設定は `%APPDATA%\com.google.ai.limit.monitor\config.json` に保存され、アップデート時も自動復元されます）。
   - **終了**: アプリケーションを完全に終了します。
 
 ---
 
+## ❓ FAQ
+
+### Q1. クォータが表示されない／「Language Server 待機中...」のままになります
+Antigravity が起動して Language Server（`language_server.exe`）が稼働しているかご確認ください。本アプリは Antigravity 2.x の `%USERPROFILE%\.gemini\antigravity\daemon\hub_*.json` から接続情報を取得し、見つからない場合は従来の `--csrf_token` コマンドライン引数による検出へフォールバックします。Antigravity 起動直後は数秒待つか、右上の更新ボタン `[↻]` をクリックしてください。
+
+### Q2. データが外部に送信されることはありますか？
+ありません。クォータ情報の取得はすべてローカルマシン上（`https://127.0.0.1:<port>`）で稼働する Language Server へのローカル RPC 通信のみで完結しており、外部サーバーへのデータ送信は行いません。
+
+### Q3. 起動しても画面が出ない／2つ目を起動しようとしても増えません
+単一インスタンス制御により、すでに起動中の場合は新しいプロセスは立ち上がらず、既存ウィンドウが最小化解除・最前面表示されます。トレイに格納されている場合は、タスクトレイのアイコンを左クリックして再表示してください。
+
+### Q4. 実行時に「Windows によって PC が保護されました」と表示されます
+[Windows SmartScreen 警告が出た場合](#windows-smartscreen-警告が出た場合) の手順で「詳細情報」→「実行」を選択してください。
+
+---
+
 ## 💻 開発・ビルド方法
+
+> 開発・リリース時の運用ルールについては [AGENTS.md](AGENTS.md) を参照してください。
 
 ### 開発環境の前提条件
 - **Node.js**: v20以上
@@ -161,7 +177,8 @@ NSIS セットアップインストーラ（一般配布向け）：
 npm run build:installer
 # または
 npx tauri build
-# 生成先: src-tauri/target/release/bundle/nsis/Google AI Limit Monitor_<version>_x64-setup.exe
+# バンドル生成先: src-tauri/target/release/bundle/nsis/Google AI Limit Monitor_<version>_x64-setup.exe
+# ※ 固定ダウンロードリンク運用のため、配布時は Google-AI-Limit-Monitor_x64-setup.exe にリネームして公開します
 ```
 
 ---
