@@ -1,9 +1,10 @@
 use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
@@ -140,10 +141,23 @@ pub struct QuotaStatus {
 
 #[derive(Deserialize, Debug)]
 struct ProcessDiscovery {
-    #[allow(dead_code)]
     pid: Option<u32>,
     token: Option<String>,
     ports: Option<Vec<u16>>,
+}
+
+#[derive(Deserialize, Debug)]
+struct ProcessDiscoveryList {
+    #[serde(default)]
+    items: Vec<ProcessDiscovery>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct HubDiscoveryFile {
+    pid: u32,
+    https_port: u16,
+    csrf_token: String,
 }
 
 fn format_duration(seconds: i64) -> String {
@@ -163,16 +177,78 @@ fn format_duration(seconds: i64) -> String {
     }
 }
 
-fn discover_language_server() -> Option<(String, Vec<u16>)> {
-    let script = r#"
-        $proc = Get-CimInstance Win32_Process -Filter "Name like '%language_server%'" | Select-Object -First 1 ProcessId, CommandLine
-        if ($proc -and $proc.CommandLine -match '--csrf_token\s+([a-zA-Z0-9\-]+)') {
-            $token = $Matches[1]
-            $ports = (Get-NetTCPConnection -OwningProcess $proc.ProcessId -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalPort -Unique)
-            [PSCustomObject]@{ pid = $proc.ProcessId; token = $token; ports = $ports } | ConvertTo-Json -Compress
-        } else {
-            Write-Output "{}"
+fn get_antigravity_daemon_dir() -> Option<PathBuf> {
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))?;
+    Some(PathBuf::from(home).join(".gemini").join("antigravity").join("daemon"))
+}
+
+/// 稼働中の language_server プロセス PID に一致する hub_*.json から接続情報を取得する
+fn find_hub_discovery_match(
+    running_pids: &HashSet<u32>,
+    daemon_dir: &Path,
+) -> Option<(String, Vec<u16>)> {
+    if running_pids.is_empty() || !daemon_dir.is_dir() {
+        return None;
+    }
+
+    let entries = fs::read_dir(daemon_dir).ok()?;
+    let mut candidates: Vec<(SystemTime, String, u16)> = Vec::new();
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let file_name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name,
+            None => continue,
+        };
+        if !file_name.starts_with("hub_") || !file_name.ends_with(".json") {
+            continue;
         }
+
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let hub: HubDiscoveryFile = match serde_json::from_str(&content) {
+            Ok(h) => h,
+            Err(_) => continue,
+        };
+
+        if running_pids.contains(&hub.pid) && hub.https_port > 0 && !hub.csrf_token.is_empty() {
+            let modified = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            candidates.push((modified, hub.csrf_token, hub.https_port));
+        }
+    }
+
+    // 複数一致した場合は更新日時が最新のものを優先する
+    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+    candidates
+        .into_iter()
+        .next()
+        .map(|(_, token, port)| (token, vec![port]))
+}
+
+fn query_language_server_processes() -> Vec<ProcessDiscovery> {
+    let script = r#"
+        $procs = @(Get-CimInstance Win32_Process -Filter "Name like '%language_server%'" -ErrorAction SilentlyContinue)
+        $results = @()
+        foreach ($proc in $procs) {
+            $token = $null
+            $ports = $null
+            if ($proc.CommandLine -match '--csrf_token\s+([a-zA-Z0-9\-]+)') {
+                $token = $Matches[1]
+                $ports = @(Get-NetTCPConnection -OwningProcess $proc.ProcessId -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalPort -Unique)
+            }
+            $results += [PSCustomObject]@{
+                pid = [uint32]$proc.ProcessId
+                token = $token
+                ports = $ports
+            }
+        }
+        @{ items = @($results) } | ConvertTo-Json -Compress -Depth 3
     "#;
 
     let mut cmd = Command::new("powershell");
@@ -181,18 +257,41 @@ fn discover_language_server() -> Option<(String, Vec<u16>)> {
     #[cfg(target_os = "windows")]
     cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
-    let output = cmd.output().ok()?;
+    let output = match cmd.output() {
+        Ok(o) => o,
+        Err(_) => return Vec::new(),
+    };
     let stdout = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str::<ProcessDiscoveryList>(stdout.trim())
+        .map(|list| list.items)
+        .unwrap_or_default()
+}
 
-    let discovery: ProcessDiscovery = serde_json::from_str(stdout.trim()).ok()?;
-    let token = discovery.token?;
-    let ports = discovery.ports.unwrap_or_default();
-
-    if ports.is_empty() {
+fn discover_language_server() -> Option<(String, Vec<u16>)> {
+    let processes = query_language_server_processes();
+    if processes.is_empty() {
         return None;
     }
 
-    Some((token, ports))
+    let running_pids: HashSet<u32> = processes.iter().filter_map(|p| p.pid).collect();
+
+    // 1. Antigravity 2.x 以降: daemon/hub_*.json から稼働中プロセスの接続情報を取得
+    if let Some(daemon_dir) = get_antigravity_daemon_dir() {
+        if let Some(matched) = find_hub_discovery_match(&running_pids, &daemon_dir) {
+            return Some(matched);
+        }
+    }
+
+    // 2. フォールバック (Antigravity 1.x): コマンドラインの --csrf_token を使用
+    for proc in processes {
+        if let (Some(token), Some(ports)) = (proc.token, proc.ports) {
+            if !token.is_empty() && !ports.is_empty() {
+                return Some((token, ports));
+            }
+        }
+    }
+
+    None
 }
 
 fn fetch_rpc(
@@ -597,5 +696,56 @@ mod tests {
                 should_apply_os: true,
             }
         );
+    }
+
+    #[test]
+    fn test_find_hub_discovery_match() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "galm_hub_test_{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // 停止済みプロセスの古い discovery ファイル
+        fs::write(
+            temp_dir.join("hub_40001.json"),
+            r#"{"pid":11111,"httpsPort":40000,"httpPort":40001,"lsVersion":"2.34.0","csrfToken":"stale-token"}"#,
+        )
+        .unwrap();
+
+        // 稼働中プロセスの discovery ファイル
+        fs::write(
+            temp_dir.join("hub_52707.json"),
+            r#"{"pid":24688,"httpsPort":52706,"httpPort":52707,"lsVersion":"2.34.0","csrfToken":"live-token"}"#,
+        )
+        .unwrap();
+
+        // 無効な JSON や別ファイルは無視される
+        fs::write(temp_dir.join("hub_broken.json"), r#"{"pid":24688"#).unwrap();
+        fs::write(
+            temp_dir.join("other_52707.json"),
+            r#"{"pid":24688,"httpsPort":55555,"csrfToken":"wrong-file"}"#,
+        )
+        .unwrap();
+
+        let mut running = HashSet::new();
+        running.insert(24688);
+
+        assert_eq!(
+            find_hub_discovery_match(&running, &temp_dir),
+            Some(("live-token".to_string(), vec![52706]))
+        );
+
+        // 稼働中プロセスに一致しない場合は None
+        let mut other_running = HashSet::new();
+        other_running.insert(99999);
+        assert_eq!(find_hub_discovery_match(&other_running, &temp_dir), None);
+
+        // 稼働中プロセスが空の場合は None
+        let empty_running = HashSet::new();
+        assert_eq!(find_hub_discovery_match(&empty_running, &temp_dir), None);
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }
