@@ -37,7 +37,7 @@
   - **Release ビルドおよびインストーラ作成（`npm run build:installer` / `npx tauri build`）** を行い、最適化された `.exe` を `dist/` へ上書き配置し、配布用 ZIP アーカイブおよび NSIS セットアップインストーラを作成・Release へ添付すること。
   - **Release 添付アセットの固定名統一ルール**:
     - 固定ダウンロードリンク（`releases/latest/download/...`）運用のため、GitHub Release へ添付するアセットは**バージョン番号を含まない固定名（無印）のみ**とし、版付きアセットは添付しないこと。
-      - インストーラ：`Google-AI-Limit-Monitor_x64-setup.exe`（ビルド生成物 `src-tauri/target/release/bundle/nsis/Google AI Limit Monitor_<version>_x64-setup.exe` を当該固定名でアップロード）
+      - インストーラ：`Google-AI-Limit-Monitor_x64-setup.exe`（ビルド生成物 `src-tauri/target/release/bundle/nsis/Google AI Limit Monitor_<version>_x64-setup.exe` から必ず固定名 `src-tauri/target/release/bundle/nsis/Google-AI-Limit-Monitor_x64-setup.exe` を上書き作成し、当該ファイルをアップロード）
       - ZIP アーカイブ：`google-ai-limit-monitor-windows-x64.zip`
   - **Release 前ドキュメント同期チェックリスト**（ビルド・タグ打ちの前に必ず確認すること）：
     1. `git log <前回タグ>..HEAD --oneline` で対象バージョンの全変更（Issue）を洗い出す。

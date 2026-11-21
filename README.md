@@ -1,6 +1,6 @@
 # <img src="src-tauri/icons/128x128.png" alt="Google AI Limit Monitor Icon" width="36" valign="middle" /> Google AI Limit Monitor (Windows Desktop Gadget)
 
-[![Release](https://img.shields.io/badge/version-v1.1.3-blue.svg)](https://github.com/mowthow-works/google-ai-limit-monitor/releases)
+[![Release](https://img.shields.io/badge/version-v1.1.4-blue.svg)](https://github.com/mowthow-works/google-ai-limit-monitor/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg)](https://www.microsoft.com/windows)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -60,6 +60,7 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 ### 取得の仕組み
 - 🆕 **Antigravity 2.x 対応**: Antigravity 2.x（`language_server.exe`）の新仕様に対応し、`%USERPROFILE%\.gemini\antigravity\daemon\hub_*.json` から稼働中プロセスの接続情報を自動検出します。従来の `--csrf_token` コマンドライン引数による検出（Antigravity 1.x）もフォールバックとして維持しています。
 - 🔄 **完全自動検出 & ローカル RPC 通信**: 検出したローカルポートと CSRF トークンを用い、ローカルホスト上の RPC（`GetUserStatus` / `RetrieveUserQuotaSummary`）から10分ごとに自動取得します（手動即時更新も可能）。
+- 🛟 **agy CLI フォールバック対応**: Antigravity IDE を閉じている間も、`agy` CLI（`agy -p "/usage" --output-format json`）が利用可能な環境では自動でフォールバック取得し、IDE 再起動後は自動で RPC 取得へ復帰します。
 
 ### その他
 - 📥 **NSIS インストーラ & ポータブル版対応**: 日本語・英語に対応した Setup インストーラと、展開するだけのポータブル版 ZIP の両方を提供しています。
@@ -72,7 +73,9 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 
 - **OS**: Windows 10 / 11 (64-bit)
 - **ランタイム**: Microsoft Edge WebView2（Windows 10/11 に標準搭載）
-- **対象環境**: Google Antigravity 2.x（および 1.x）環境（ローカルで Language Server が稼働していること）
+- **対象環境**: Google Antigravity 2.x（および 1.x）環境
+  - 通常時：ローカルで Language Server が稼働していること
+  - フォールバック時：`agy` CLI（`%LOCALAPPDATA%\agy\bin\agy.exe` または `PATH` 上の `agy.exe`）が利用可能な場合、Antigravity IDE を閉じていても 5-Hour / Weekly 残量を取得可能
 
 ---
 
@@ -125,7 +128,12 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 ## ❓ FAQ
 
 ### Q1. クォータが表示されない／「Language Server 待機中...」のままになります
-Antigravity が起動して Language Server（`language_server.exe`）が稼働しているかご確認ください。本アプリは Antigravity 2.x の `%USERPROFILE%\.gemini\antigravity\daemon\hub_*.json` から接続情報を取得し、見つからない場合は従来の `--csrf_token` コマンドライン引数による検出へフォールバックします。Antigravity 起動直後は数秒待つか、右上の更新ボタン `[↻]` をクリックしてください。
+まず Antigravity が起動して Language Server（`language_server.exe`）が稼働しているかご確認ください。本アプリは Antigravity 2.x の `%USERPROFILE%\.gemini\antigravity\daemon\hub_*.json` から接続情報を取得し、見つからない場合は従来の `--csrf_token` コマンドライン引数による検出へフォールバックします。
+
+Language Server が未稼働の場合でも、`agy` CLI（`%LOCALAPPDATA%\agy\bin\agy.exe` または `PATH` 上の `agy.exe`）が利用可能であれば自動的に `agy -p "/usage" --output-format json` へフォールバックしてクォータ残量を取得します（`num_turns=0` でクォータは消費しません）。
+- `agy` 経由での取得中は、フッターに **`via agy`** が表示され、CLI 出力に含まれない項目（プラン名・Prompt Credits・対象モデル一覧詳細）は **`―`** 表示になります。
+- Antigravity を起動して Language Server が復帰すると、次回の更新時に自動で通常の RPC 表示に戻ります。
+- `agy` 未インストール環境で「Language Server 待機中...」が続く場合は、Antigravity 起動直後に数秒待つか、右上の更新ボタン `[↻]` をクリックしてください。
 
 ### Q2. データが外部に送信されることはありますか？
 ありません。クォータ情報の取得はすべてローカルマシン上（`https://127.0.0.1:<port>`）で稼働する Language Server へのローカル RPC 通信のみで完結しており、外部サーバーへのデータ送信は行いません。
