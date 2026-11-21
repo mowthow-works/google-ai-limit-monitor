@@ -1,6 +1,6 @@
 # <img src="src-tauri/icons/128x128.png" alt="Google AI Limit Monitor Icon" width="36" valign="middle" /> Google AI Limit Monitor (Windows Desktop Gadget)
 
-[![Release](https://img.shields.io/badge/version-v1.1.3-blue.svg)](https://github.com/mowthow-works/google-ai-limit-monitor/releases)
+[![Release](https://img.shields.io/badge/version-v1.1.4-blue.svg)](https://github.com/mowthow-works/google-ai-limit-monitor/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg)](https://www.microsoft.com/windows)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -60,6 +60,7 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 ### 取得の仕組み
 - 🆕 **Antigravity 2.x 対応**: Antigravity 2.x（`language_server.exe`）の新仕様に対応し、`%USERPROFILE%\.gemini\antigravity\daemon\hub_*.json` から稼働中プロセスの接続情報を自動検出します。従来の `--csrf_token` コマンドライン引数による検出（Antigravity 1.x）もフォールバックとして維持しています。
 - 🔄 **完全自動検出 & ローカル RPC 通信**: 検出したローカルポートと CSRF トークンを用い、ローカルホスト上の RPC（`GetUserStatus` / `RetrieveUserQuotaSummary`）から10分ごとに自動取得します（手動即時更新も可能）。
+- 🛟 **agy CLI フォールバック対応**: Antigravity IDE を閉じている間も、`agy` CLI（`agy -p "/usage" --output-format json`）が利用可能な環境では自動でフォールバック取得し、IDE 再起動後は自動で RPC 取得へ復帰します。
 
 ### その他
 - 📥 **NSIS インストーラ & ポータブル版対応**: 日本語・英語に対応した Setup インストーラと、展開するだけのポータブル版 ZIP の両方を提供しています。
