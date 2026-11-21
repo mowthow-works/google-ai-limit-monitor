@@ -4,7 +4,10 @@ const CIRCUMFERENCE = 2 * Math.PI * 35; // r=35 -> ~219.911
 const statusDot = document.getElementById("status-dot");
 const planBadge = document.getElementById("plan-badge");
 const lastUpdated = document.getElementById("last-updated");
+const creditBadge = document.getElementById("credit-badge");
 const creditCount = document.getElementById("credit-count");
+const creditUnit = document.getElementById("credit-unit");
+const sourceBadge = document.getElementById("source-badge");
 
 const card5h = document.getElementById("card-5h");
 const cardNo5h = document.getElementById("card-no-5h");
@@ -108,8 +111,23 @@ function getFilteredModels(groupKey) {
   });
 }
 
+function isAgyMode() {
+  return !demoMode && Boolean(cachedData?.connected && cachedData?.source === "agy");
+}
+
 function renderModelBadges(groupKey) {
   if (!modelBadges || !modelCount) return;
+
+  if (isAgyMode()) {
+    modelCount.textContent = "―";
+    modelBadges.innerHTML = "";
+    const span = document.createElement("span");
+    span.className = "model-badge empty";
+    span.textContent = "―（agy 取得時はモデル詳細なし）";
+    modelBadges.appendChild(span);
+    return;
+  }
+
   const filtered = getFilteredModels(groupKey);
   modelBadges.innerHTML = "";
 
@@ -215,10 +233,23 @@ function renderCurrentGroup() {
   const groupData = findGroupData(currentGroup);
 
   if (!groupData) {
+    fiveHourSeconds = 0;
+    weeklySeconds = 0;
+    if (currentGroup === "argon") {
+      card5h.style.display = "none";
+      cardNo5h.style.display = "flex";
+    } else {
+      card5h.style.display = "flex";
+      cardNo5h.style.display = "none";
+    }
     updateGauge(ring5h, val5h, 1.0, 100);
+    val5h.textContent = "--%";
+    val5h.style.color = "#fff";
     reset5h.textContent = "リセット: --";
     model5h.textContent = "待機中";
     updateGauge(ringWeekly, valWeekly, 1.0, 100);
+    valWeekly.textContent = "--%";
+    valWeekly.style.color = "#fff";
     resetWeekly.textContent = "リセット: --";
     modelWeekly.textContent = "待機中";
     return;
@@ -269,10 +300,33 @@ async function fetchStatus() {
     cachedData = data;
 
     if (data.connected) {
+      const agyMode = data.source === "agy";
       statusDot.className = "status-dot connected";
-      statusDot.title = `接続中 (${data.email})`;
-      planBadge.textContent = data.plan_name;
-      creditCount.textContent = (data.prompt_credits || 0).toLocaleString();
+      statusDot.title = agyMode
+        ? "接続中 (agy フォールバック)"
+        : data.email
+        ? `接続中 (${data.email})`
+        : "接続中 (Language Server)";
+      planBadge.textContent = agyMode ? "―" : data.plan_name || "Pro";
+      if (sourceBadge) {
+        sourceBadge.style.display = agyMode ? "inline-flex" : "none";
+      }
+
+      if (agyMode || data.prompt_credits === null || data.prompt_credits === undefined) {
+        creditCount.textContent = "―";
+        if (creditUnit) creditUnit.textContent = "";
+        if (creditBadge) {
+          creditBadge.classList.add("muted");
+          creditBadge.title = "agy フォールバック時はクレジット残高を取得できません";
+        }
+      } else {
+        creditCount.textContent = data.prompt_credits.toLocaleString();
+        if (creditUnit) creditUnit.textContent = " credits";
+        if (creditBadge) {
+          creditBadge.classList.remove("muted");
+          creditBadge.title = "利用可能なPrompt Credits";
+        }
+      }
       lastUpdated.textContent = getLocalTimeString();
 
       renderCurrentGroup();
@@ -280,7 +334,18 @@ async function fetchStatus() {
       statusDot.className = "status-dot disconnected";
       statusDot.title = data.status_message;
       planBadge.textContent = "待機中";
+      if (sourceBadge) {
+        sourceBadge.style.display = "none";
+      }
+      creditCount.textContent = "―";
+      if (creditUnit) creditUnit.textContent = "";
+      if (creditBadge) {
+        creditBadge.classList.add("muted");
+        creditBadge.title = "未接続";
+      }
       lastUpdated.textContent = getLocalTimeString();
+
+      renderCurrentGroup();
     }
   } catch (err) {
     console.error("fetchStatus failed:", err);
@@ -321,7 +386,13 @@ planBadge.addEventListener("click", (e) => {
     statusDot.className = "status-dot connected";
     statusDot.title = "デモ表示中 (クリックで戻る)";
     planBadge.textContent = "DEMO";
+    if (sourceBadge) sourceBadge.style.display = "none";
+    if (creditBadge) {
+      creditBadge.classList.remove("muted");
+      creditBadge.title = "利用可能なPrompt Credits";
+    }
     creditCount.textContent = "350";
+    if (creditUnit) creditUnit.textContent = " credits";
     lastUpdated.textContent = getLocalTimeString();
     renderCurrentGroup();
   } else {

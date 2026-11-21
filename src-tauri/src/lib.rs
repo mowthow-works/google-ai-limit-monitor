@@ -2,9 +2,10 @@ use chrono::{DateTime, Local, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{Duration, SystemTime};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant, SystemTime};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager};
@@ -12,6 +13,13 @@ use tauri_plugin_autostart::ManagerExt;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+
+const AGY_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
+
+#[cfg(target_os = "windows")]
+const AGY_BINARY_NAME: &str = "agy.exe";
+#[cfg(not(target_os = "windows"))]
+const AGY_BINARY_NAME: &str = "agy";
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct AppConfig {
@@ -130,9 +138,10 @@ pub struct QuotaGroup {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct QuotaStatus {
     pub connected: bool,
+    pub source: String,
     pub status_message: String,
     pub plan_name: String,
-    pub prompt_credits: i64,
+    pub prompt_credits: Option<i64>,
     pub email: String,
     pub updated_at: String,
     pub groups: Vec<QuotaGroup>,
@@ -331,24 +340,48 @@ fn fetch_rpc(
     Err(format!("Could not connect to {} on any port", method))
 }
 
-fn get_quota_status_blocking() -> QuotaStatus {
-    let now_utc = Utc::now();
-    let now_local = Local::now();
-    let updated_at = now_local.format("%H:%M:%S").to_string();
+fn create_bucket_info(
+    bucket_id: String,
+    display_name: String,
+    window: String,
+    fraction: f64,
+    reset_time: String,
+    now_utc: DateTime<Utc>,
+) -> BucketInfo {
+    let percentage = (fraction * 1000.0).round() / 10.0;
+    let mut diff_seconds: i64 = 0;
+    if let Ok(reset_dt) = reset_time.parse::<DateTime<Utc>>() {
+        diff_seconds = (reset_dt - now_utc).num_seconds();
+    }
 
+    BucketInfo {
+        bucket_id,
+        display_name,
+        window,
+        remaining_fraction: fraction,
+        percentage,
+        reset_time,
+        remaining_seconds: diff_seconds,
+        remaining_formatted: format_duration(diff_seconds),
+    }
+}
+
+/// 稼働中 Language Server へのローカル RPC 経由でクォータ情報を取得する
+fn fetch_quota_via_rpc(now_utc: DateTime<Utc>, updated_at: &str) -> Result<QuotaStatus, QuotaStatus> {
     let (token, ports) = match discover_language_server() {
         Some(val) => val,
         None => {
-            return QuotaStatus {
+            return Err(QuotaStatus {
                 connected: false,
+                source: "none".to_string(),
                 status_message: "Language Server 待機中...".to_string(),
                 plan_name: "未接続".to_string(),
-                prompt_credits: 0,
-                email: "".to_string(),
-                updated_at,
+                prompt_credits: None,
+                email: String::new(),
+                updated_at: updated_at.to_string(),
                 groups: Vec::new(),
                 models: Vec::new(),
-            };
+            });
         }
     };
 
@@ -396,16 +429,17 @@ fn get_quota_status_blocking() -> QuotaStatus {
     let summary_json = match fetch_rpc(&token, &ports, "RetrieveUserQuotaSummary") {
         Ok(j) => j,
         Err(err) => {
-            return QuotaStatus {
+            return Err(QuotaStatus {
                 connected: false,
+                source: "none".to_string(),
                 status_message: format!("通信エラー: {}", err),
                 plan_name: "エラー".to_string(),
-                prompt_credits,
+                prompt_credits: Some(prompt_credits),
                 email,
-                updated_at,
+                updated_at: updated_at.to_string(),
                 groups: Vec::new(),
                 models: parsed_models,
-            };
+            });
         }
     };
 
@@ -425,24 +459,16 @@ fn get_quota_status_blocking() -> QuotaStatus {
                     let b_display = b["displayName"].as_str().unwrap_or("").to_string();
                     let window = b["window"].as_str().unwrap_or("").to_string();
                     let fraction = b["remainingFraction"].as_f64().unwrap_or(1.0);
-                    let percentage = (fraction * 1000.0).round() / 10.0;
                     let reset_time_str = b["resetTime"].as_str().unwrap_or("").to_string();
 
-                    let mut diff_seconds: i64 = 0;
-                    if let Ok(reset_dt) = reset_time_str.parse::<DateTime<Utc>>() {
-                        diff_seconds = (reset_dt - now_utc).num_seconds();
-                    }
-
-                    let info = BucketInfo {
+                    let info = create_bucket_info(
                         bucket_id,
-                        display_name: b_display,
-                        window: window.clone(),
-                        remaining_fraction: fraction,
-                        percentage,
-                        reset_time: reset_time_str,
-                        remaining_seconds: diff_seconds,
-                        remaining_formatted: format_duration(diff_seconds),
-                    };
+                        b_display,
+                        window.clone(),
+                        fraction,
+                        reset_time_str,
+                        now_utc,
+                    );
 
                     if window == "5h" {
                         five_hour = Some(info);
@@ -461,16 +487,293 @@ fn get_quota_status_blocking() -> QuotaStatus {
         }
     }
 
-    QuotaStatus {
+    if parsed_groups.is_empty() {
+        return Err(QuotaStatus {
+            connected: false,
+            source: "none".to_string(),
+            status_message: "Language Server からクォータを取得できませんでした".to_string(),
+            plan_name: "未接続".to_string(),
+            prompt_credits: None,
+            email,
+            updated_at: updated_at.to_string(),
+            groups: Vec::new(),
+            models: parsed_models,
+        });
+    }
+
+    Ok(QuotaStatus {
         connected: true,
+        source: "rpc".to_string(),
         status_message: "正常稼働中".to_string(),
         plan_name,
-        prompt_credits,
+        prompt_credits: Some(prompt_credits),
         email,
-        updated_at,
+        updated_at: updated_at.to_string(),
         groups: parsed_groups,
         models: parsed_models,
+    })
+}
+
+/// %LOCALAPPDATA%\agy\bin\agy.exe を優先し、なければ PATH から agy 実行ファイルを解決する
+fn resolve_agy_path_with(
+    local_app_data: Option<&Path>,
+    path_env: Option<&std::ffi::OsStr>,
+) -> Option<PathBuf> {
+    if let Some(local_dir) = local_app_data {
+        let candidate = local_dir.join("agy").join("bin").join(AGY_BINARY_NAME);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
     }
+
+    if let Some(paths) = path_env {
+        for dir in std::env::split_paths(paths) {
+            let candidate = dir.join(AGY_BINARY_NAME);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    None
+}
+
+fn resolve_agy_path() -> Option<PathBuf> {
+    let local_app_data = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    let path_env = std::env::var_os("PATH");
+    resolve_agy_path_with(local_app_data.as_deref(), path_env.as_deref())
+}
+
+/// ウィンドウ非表示かつタイムアウト付きで agy -p "/usage" --output-format json を実行する
+fn run_agy_usage_command(agy_path: &Path, timeout: Duration) -> Result<String, String> {
+    let mut cmd = Command::new(agy_path);
+    cmd.args(["-p", "/usage", "--output-format", "json"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+    let mut child = cmd.spawn().map_err(|e| format!("agy 起動失敗: {}", e))?;
+
+    let stdout_pipe = child.stdout.take();
+    let stderr_pipe = child.stderr.take();
+
+    let stdout_handle = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut pipe) = stdout_pipe {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let stderr_handle = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut pipe) = stderr_pipe {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let start = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = stdout_handle.join();
+                    let _ = stderr_handle.join();
+                    return Err("agy 実行タイムアウト".to_string());
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout_handle.join();
+                let _ = stderr_handle.join();
+                return Err(format!("agy 待機エラー: {}", e));
+            }
+        }
+    };
+
+    let stdout_bytes = stdout_handle.join().unwrap_or_default();
+    let stderr_bytes = stderr_handle.join().unwrap_or_default();
+
+    if !status.success() {
+        let stderr_str = String::from_utf8_lossy(&stderr_bytes);
+        return Err(format!(
+            "agy 異常終了 (code={:?}): {}",
+            status.code(),
+            stderr_str.trim()
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&stdout_bytes).into_owned())
+}
+
+fn set_group_desc_if_empty(group: &mut QuotaGroup, desc: &str) {
+    if group.description.is_empty() && !desc.is_empty() {
+        group.description = desc.to_string();
+    }
+}
+
+/// agy /usage の JSON 出力をバケット ID ベースで 3 グループ構成へ変換する
+fn parse_agy_usage_json(
+    raw_json: &str,
+    now_utc: DateTime<Utc>,
+    updated_at: String,
+) -> Result<QuotaStatus, String> {
+    let json: serde_json::Value = serde_json::from_str(raw_json.trim())
+        .map_err(|e| format!("agy JSON パースエラー: {}", e))?;
+
+    if json["status"].as_str() != Some("SUCCESS") {
+        return Err(format!(
+            "agy ステータス異常: {:?}",
+            json["status"].as_str()
+        ));
+    }
+
+    let raw_groups = json["command"]["data"]["groups"]
+        .as_array()
+        .ok_or_else(|| "agy groups が見つかりません".to_string())?;
+
+    let mut gemini_group = QuotaGroup {
+        display_name: "Gemini Models".to_string(),
+        description: String::new(),
+        five_hour_bucket: None,
+        weekly_bucket: None,
+    };
+    let mut argon_group = QuotaGroup {
+        display_name: "Gemini 4 Argon".to_string(),
+        description: String::new(),
+        five_hour_bucket: None,
+        weekly_bucket: None,
+    };
+    let mut claude_group = QuotaGroup {
+        display_name: "Claude and GPT models".to_string(),
+        description: String::new(),
+        five_hour_bucket: None,
+        weekly_bucket: None,
+    };
+
+    for g in raw_groups {
+        let group_desc = g["description"].as_str().unwrap_or("");
+        let Some(buckets) = g["buckets"].as_array() else {
+            continue;
+        };
+
+        for b in buckets {
+            let Some(bucket_id) = b["id"].as_str() else {
+                continue;
+            };
+            let Some(fraction) = b["remaining_fraction"].as_f64() else {
+                continue;
+            };
+
+            let default_window = match bucket_id {
+                "gemini-5h" | "3p-5h" => "5h",
+                "gemini-weekly" | "gemini-argon-wtu-weekly" | "3p-weekly" => "weekly",
+                _ => continue,
+            };
+
+            let window = b["window"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(default_window)
+                .to_string();
+            let b_display = b["name"].as_str().unwrap_or("").to_string();
+            let reset_time_str = b["reset_time"].as_str().unwrap_or("").to_string();
+
+            let info = create_bucket_info(
+                bucket_id.to_string(),
+                b_display,
+                window,
+                fraction,
+                reset_time_str,
+                now_utc,
+            );
+
+            match bucket_id {
+                "gemini-5h" => {
+                    set_group_desc_if_empty(&mut gemini_group, group_desc);
+                    gemini_group.five_hour_bucket = Some(info);
+                }
+                "gemini-weekly" => {
+                    set_group_desc_if_empty(&mut gemini_group, group_desc);
+                    gemini_group.weekly_bucket = Some(info);
+                }
+                "gemini-argon-wtu-weekly" => {
+                    set_group_desc_if_empty(&mut argon_group, group_desc);
+                    argon_group.weekly_bucket = Some(info);
+                }
+                "3p-5h" => {
+                    set_group_desc_if_empty(&mut claude_group, group_desc);
+                    claude_group.five_hour_bucket = Some(info);
+                }
+                "3p-weekly" => {
+                    set_group_desc_if_empty(&mut claude_group, group_desc);
+                    claude_group.weekly_bucket = Some(info);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let groups: Vec<QuotaGroup> = [gemini_group, argon_group, claude_group]
+        .into_iter()
+        .filter(|g| g.five_hour_bucket.is_some() || g.weekly_bucket.is_some())
+        .collect();
+
+    if groups.is_empty() {
+        return Err("既知のクォータバケットが見つかりません".to_string());
+    }
+
+    Ok(QuotaStatus {
+        connected: true,
+        source: "agy".to_string(),
+        status_message: "agy 経由で取得中".to_string(),
+        plan_name: "―".to_string(),
+        prompt_credits: None,
+        email: String::new(),
+        updated_at,
+        groups,
+        models: Vec::new(),
+    })
+}
+
+fn fetch_quota_via_agy(now_utc: DateTime<Utc>, updated_at: &str) -> Result<QuotaStatus, String> {
+    let agy_path = resolve_agy_path().ok_or_else(|| "agy が見つかりません".to_string())?;
+    let raw_json = run_agy_usage_command(&agy_path, AGY_COMMAND_TIMEOUT)?;
+    parse_agy_usage_json(&raw_json, now_utc, updated_at.to_string())
+}
+
+fn resolve_quota_with_fallback<FRpc, FAgy>(rpc_fetcher: FRpc, agy_fetcher: FAgy) -> QuotaStatus
+where
+    FRpc: FnOnce() -> Result<QuotaStatus, QuotaStatus>,
+    FAgy: FnOnce() -> Result<QuotaStatus, String>,
+{
+    match rpc_fetcher() {
+        Ok(status) => status,
+        Err(wait_status) => match agy_fetcher() {
+            Ok(agy_status) => agy_status,
+            Err(_) => wait_status,
+        },
+    }
+}
+
+fn get_quota_status_blocking() -> QuotaStatus {
+    let now_utc = Utc::now();
+    let now_local = Local::now();
+    let updated_at = now_local.format("%H:%M:%S").to_string();
+
+    resolve_quota_with_fallback(
+        || fetch_quota_via_rpc(now_utc, &updated_at),
+        || fetch_quota_via_agy(now_utc, &updated_at),
+    )
 }
 
 #[tauri::command]
@@ -481,9 +784,10 @@ async fn get_quota_status() -> QuotaStatus {
             let now_local = Local::now();
             QuotaStatus {
                 connected: false,
+                source: "none".to_string(),
                 status_message: "スレッドエラー".to_string(),
                 plan_name: "エラー".to_string(),
-                prompt_credits: 0,
+                prompt_credits: None,
                 email: "".to_string(),
                 updated_at: now_local.format("%H:%M:%S").to_string(),
                 groups: Vec::new(),
@@ -747,5 +1051,221 @@ mod tests {
         assert_eq!(find_hub_discovery_match(&empty_running, &temp_dir), None);
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    const SAMPLE_AGY_JSON: &str = r#"{"conversation_id":"","status":"SUCCESS","response":"...","duration_seconds":0,"num_turns":0,"usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0},"command":{"name":"usage","data":{"description":"Within each group...","groups":[{"name":"Gemini Models","description":"Models within this group: Gemini 4 Neon, Gemini 4 Hydrogen","buckets":[{"id":"gemini-weekly","name":"Weekly Limit Remaining","description":"...","window":"weekly","remaining_fraction":0.16746044158935547,"reset_time":"2026-11-25T11:23:39Z"},{"id":"gemini-5h","name":"Five Hour Limit Remaining","description":"...","window":"5h","remaining_fraction":0.3740962743759155,"reset_time":"2026-11-21T02:29:02Z"}]},{"name":"Claude and GPT models","description":"Models within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B","buckets":[{"id":"3p-weekly","name":"Weekly Limit Remaining","window":"weekly","remaining_fraction":1,"reset_time":"2026-11-28T01:04:58Z"},{"id":"3p-5h","name":"Five Hour Limit Remaining","window":"5h","remaining_fraction":1,"reset_time":"2026-11-21T06:04:58Z"}]},{"name":"Gemini 4 Argon","description":"For paid Pro plans, Argon quota is separate.","buckets":[{"id":"gemini-argon-wtu-weekly","name":"Gemini 4 Argon Weekly Limit","description":"...","window":"weekly","remaining_fraction":0.0711742639541626,"reset_time":"2026-11-25T11:15:13Z"}]}]}}}"#;
+
+    #[test]
+    fn test_parse_agy_usage_json_success() {
+        let now = "2026-11-21T01:05:00Z".parse::<DateTime<Utc>>().unwrap();
+        let status = parse_agy_usage_json(SAMPLE_AGY_JSON, now, "10:05:00".to_string()).unwrap();
+
+        assert!(status.connected);
+        assert_eq!(status.source, "agy");
+        assert_eq!(status.plan_name, "―");
+        assert_eq!(status.prompt_credits, None);
+        assert!(status.models.is_empty());
+        assert_eq!(status.groups.len(), 3);
+
+        // 0: Gemini Models
+        let g0 = &status.groups[0];
+        assert_eq!(g0.display_name, "Gemini Models");
+        assert_eq!(g0.five_hour_bucket.as_ref().unwrap().bucket_id, "gemini-5h");
+        assert_eq!(g0.five_hour_bucket.as_ref().unwrap().percentage, 37.4);
+        assert_eq!(g0.weekly_bucket.as_ref().unwrap().bucket_id, "gemini-weekly");
+        assert_eq!(g0.weekly_bucket.as_ref().unwrap().percentage, 16.7);
+
+        // 1: Gemini 4 Argon
+        let g1 = &status.groups[1];
+        assert_eq!(g1.display_name, "Gemini 4 Argon");
+        assert!(g1.five_hour_bucket.is_none());
+        assert_eq!(
+            g1.weekly_bucket.as_ref().unwrap().bucket_id,
+            "gemini-argon-wtu-weekly"
+        );
+        assert_eq!(g1.weekly_bucket.as_ref().unwrap().percentage, 7.1);
+
+        // 2: Claude and GPT models
+        let g2 = &status.groups[2];
+        assert_eq!(g2.display_name, "Claude and GPT models");
+        assert_eq!(g2.five_hour_bucket.as_ref().unwrap().bucket_id, "3p-5h");
+        assert_eq!(g2.five_hour_bucket.as_ref().unwrap().percentage, 100.0);
+        assert_eq!(g2.weekly_bucket.as_ref().unwrap().bucket_id, "3p-weekly");
+        assert_eq!(g2.weekly_bucket.as_ref().unwrap().percentage, 100.0);
+    }
+
+    #[test]
+    fn test_parse_agy_usage_json_shuffled_order_by_bucket_id() {
+        let now = "2026-11-21T01:05:00Z".parse::<DateTime<Utc>>().unwrap();
+        let shuffled = r#"{
+            "status": "SUCCESS",
+            "command": {
+                "name": "usage",
+                "data": {
+                    "groups": [
+                        {
+                            "name": "Renamed Group Z",
+                            "buckets": [
+                                { "id": "gemini-argon-wtu-weekly", "name": "Argon W", "remaining_fraction": 0.25, "reset_time": "2026-11-25T11:15:13Z" },
+                                { "id": "unknown-future-bucket", "name": "Ignored", "remaining_fraction": 0.5, "reset_time": "2026-11-25T11:15:13Z" }
+                            ]
+                        },
+                        {
+                            "name": "Renamed Group B",
+                            "buckets": [
+                                { "id": "3p-5h", "name": "3P 5h", "remaining_fraction": 0.88, "reset_time": "2026-11-21T06:04:58Z" },
+                                { "id": "gemini-weekly", "name": "Gemini W", "remaining_fraction": 0.42, "reset_time": "2026-11-25T11:23:39Z" }
+                            ]
+                        },
+                        {
+                            "name": "Renamed Group A",
+                            "buckets": [
+                                { "id": "3p-weekly", "name": "3P W", "remaining_fraction": 0.91, "reset_time": "2026-11-28T01:04:58Z" },
+                                { "id": "gemini-5h", "name": "Gemini 5h", "remaining_fraction": 0.63, "reset_time": "2026-11-21T02:29:02Z" }
+                            ]
+                        }
+                    ]
+                }
+            }
+        }"#;
+
+        let status = parse_agy_usage_json(shuffled, now, "10:05:00".to_string()).unwrap();
+        assert_eq!(status.groups.len(), 3);
+        assert_eq!(status.groups[0].display_name, "Gemini Models");
+        assert_eq!(status.groups[0].five_hour_bucket.as_ref().unwrap().bucket_id, "gemini-5h");
+        assert_eq!(status.groups[0].five_hour_bucket.as_ref().unwrap().percentage, 63.0);
+        assert_eq!(status.groups[0].weekly_bucket.as_ref().unwrap().bucket_id, "gemini-weekly");
+        assert_eq!(status.groups[0].weekly_bucket.as_ref().unwrap().percentage, 42.0);
+
+        assert_eq!(status.groups[1].display_name, "Gemini 4 Argon");
+        assert!(status.groups[1].five_hour_bucket.is_none());
+        assert_eq!(status.groups[1].weekly_bucket.as_ref().unwrap().percentage, 25.0);
+
+        assert_eq!(status.groups[2].display_name, "Claude and GPT models");
+        assert_eq!(status.groups[2].five_hour_bucket.as_ref().unwrap().percentage, 88.0);
+        assert_eq!(status.groups[2].weekly_bucket.as_ref().unwrap().percentage, 91.0);
+    }
+
+    #[test]
+    fn test_parse_agy_usage_json_errors() {
+        let now = "2026-11-21T01:05:00Z".parse::<DateTime<Utc>>().unwrap();
+
+        assert!(parse_agy_usage_json("{invalid", now, "10:00:00".to_string()).is_err());
+        assert!(parse_agy_usage_json(r#"{"status":"ERROR","command":{"data":{"groups":[]}}}"#, now, "10:00:00".to_string()).is_err());
+        assert!(parse_agy_usage_json(r#"{"status":"SUCCESS","command":{"data":{}}}"#, now, "10:00:00".to_string()).is_err());
+        assert!(parse_agy_usage_json(
+            r#"{"status":"SUCCESS","command":{"data":{"groups":[{"name":"X","buckets":[{"id":"unknown-only","remaining_fraction":0.5}]}]}}}"#,
+            now,
+            "10:00:00".to_string()
+        ).is_err());
+    }
+
+    #[test]
+    fn test_resolve_agy_path_with() {
+        let base_dir = std::env::temp_dir().join(format!("galm_agy_path_test_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base_dir);
+
+        let local_app = base_dir.join("local");
+        let local_bin = local_app.join("agy").join("bin");
+        let path_dir = base_dir.join("path_dir");
+        fs::create_dir_all(&local_bin).unwrap();
+        fs::create_dir_all(&path_dir).unwrap();
+
+        let local_exe = local_bin.join(AGY_BINARY_NAME);
+        let path_exe = path_dir.join(AGY_BINARY_NAME);
+
+        // どちらも存在しない場合は None
+        let path_os = std::env::join_paths([&path_dir]).unwrap();
+        assert_eq!(resolve_agy_path_with(Some(&local_app), Some(path_os.as_os_str())), None);
+
+        // PATH にのみ存在する場合は PATH 解決
+        fs::write(&path_exe, b"").unwrap();
+        assert_eq!(
+            resolve_agy_path_with(Some(&local_app), Some(path_os.as_os_str())),
+            Some(path_exe.clone())
+        );
+
+        // %LOCALAPPDATA%\agy\bin\agy.exe が存在する場合はこちらを優先
+        fs::write(&local_exe, b"").unwrap();
+        assert_eq!(
+            resolve_agy_path_with(Some(&local_app), Some(path_os.as_os_str())),
+            Some(local_exe)
+        );
+
+        let _ = fs::remove_dir_all(&base_dir);
+    }
+
+    #[test]
+    fn test_resolve_quota_with_fallback_priority_and_recovery() {
+        let make_status = |connected: bool, source: &str, msg: &str, credits: Option<i64>| QuotaStatus {
+            connected,
+            source: source.to_string(),
+            status_message: msg.to_string(),
+            plan_name: if source == "rpc" { "Pro" } else { "―" }.to_string(),
+            prompt_credits: credits,
+            email: String::new(),
+            updated_at: "10:00:00".to_string(),
+            groups: Vec::new(),
+            models: Vec::new(),
+        };
+
+        // 1. RPC 成功時は agy を呼ばず RPC を返す
+        let mut agy_called = false;
+        let res1 = resolve_quota_with_fallback(
+            || Ok(make_status(true, "rpc", "正常稼働中", Some(120))),
+            || {
+                agy_called = true;
+                Ok(make_status(true, "agy", "agy 経由で取得中", None))
+            },
+        );
+        assert!(!agy_called);
+        assert_eq!(res1.source, "rpc");
+        assert_eq!(res1.prompt_credits, Some(120));
+
+        // 2. RPC 失敗時は agy へフォールバック
+        let res2 = resolve_quota_with_fallback(
+            || Err(make_status(false, "none", "Language Server 待機中...", None)),
+            || Ok(make_status(true, "agy", "agy 経由で取得中", None)),
+        );
+        assert!(res2.connected);
+        assert_eq!(res2.source, "agy");
+        assert_eq!(res2.prompt_credits, None);
+
+        // 3. RPC も agy も失敗時は現行の待機表示に戻る
+        let res3 = resolve_quota_with_fallback(
+            || Err(make_status(false, "none", "Language Server 待機中...", None)),
+            || Err("agy 実行失敗".to_string()),
+        );
+        assert!(!res3.connected);
+        assert_eq!(res3.source, "none");
+        assert_eq!(res3.status_message, "Language Server 待機中...");
+
+        // 4. Language Server が復帰すれば自動で RPC へ戻る
+        let res4 = resolve_quota_with_fallback(
+            || Ok(make_status(true, "rpc", "正常稼働中", Some(250))),
+            || Ok(make_status(true, "agy", "agy 経由で取得中", None)),
+        );
+        assert!(res4.connected);
+        assert_eq!(res4.source, "rpc");
+        assert_eq!(res4.prompt_credits, Some(250));
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fetch_quota_via_agy_live() {
+        let now_utc = Utc::now();
+        let updated_at = Local::now().format("%H:%M:%S").to_string();
+        let status = fetch_quota_via_agy(now_utc, &updated_at).expect("live agy fetch should succeed");
+        assert!(status.connected);
+        assert_eq!(status.source, "agy");
+        assert_eq!(status.groups.len(), 3);
+        for g in &status.groups {
+            println!(
+                "group={} 5h={:?} weekly={:?}",
+                g.display_name,
+                g.five_hour_bucket.as_ref().map(|b| (b.bucket_id.as_str(), b.percentage)),
+                g.weekly_bucket.as_ref().map(|b| (b.bucket_id.as_str(), b.percentage))
+            );
+        }
     }
 }
