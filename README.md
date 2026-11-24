@@ -31,8 +31,8 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
       </td>
       <td align="center" width="33%">
         <b>🔴 警告 (0%〜29%)</b><br />
-        <sub>Weekly 専用タブ例（警告表示）</sub><br />
-        <img src="docs/screenshot_argon.png" alt="Weekly 専用タブ例（警告表示）" width="260" />
+        <sub>Gemini タブ（警告表示）</sub><br />
+        <img src="docs/screenshot_warning.png" alt="Gemini タブ（警告表示）" width="260" />
       </td>
     </tr>
   </table>
