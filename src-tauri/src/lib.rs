@@ -105,7 +105,7 @@ fn sync_autostart_on_startup(app: &AppHandle) -> bool {
     plan.desired_enabled
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BucketInfo {
     pub bucket_id: String,
     pub display_name: String,
@@ -117,7 +117,7 @@ pub struct BucketInfo {
     pub remaining_formatted: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ModelInfo {
     pub model_id: String,
     pub label: String,
@@ -127,9 +127,11 @@ pub struct ModelInfo {
     pub is_recommended: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct QuotaGroup {
+    pub id: String,
     pub display_name: String,
+    pub tab_label: String,
     pub description: String,
     pub five_hour_bucket: Option<BucketInfo>,
     pub weekly_bucket: Option<BucketInfo>,
@@ -366,6 +368,185 @@ fn create_bucket_info(
     }
 }
 
+fn normalize_bucket_window(raw_window: Option<&str>, bucket_id: &str) -> Option<&'static str> {
+    if let Some(w) = raw_window {
+        match w.trim().to_ascii_lowercase().as_str() {
+            "5h" => return Some("5h"),
+            "weekly" => return Some("weekly"),
+            _ => {}
+        }
+    }
+
+    let id_lower = bucket_id.trim().to_ascii_lowercase();
+    if id_lower.ends_with("-5h") || id_lower.ends_with("_5h") || id_lower == "5h" {
+        Some("5h")
+    } else if id_lower.ends_with("-weekly") || id_lower.ends_with("_weekly") || id_lower == "weekly" {
+        Some("weekly")
+    } else {
+        None
+    }
+}
+
+fn derive_tab_label(display_name: &str) -> String {
+    let trimmed = display_name.trim();
+    let lower = trimmed.to_lowercase();
+    if lower.contains("argon") {
+        "Argon".to_string()
+    } else if lower.contains("gemini") {
+        "Gemini".to_string()
+    } else if lower.contains("claude") || lower.contains("gpt") {
+        "Claude / GPT".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn derive_group_base_id(display_name: &str, fallback_bucket_id: &str) -> String {
+    let lower = display_name.trim().to_lowercase();
+    if lower.contains("argon") {
+        return "argon".to_string();
+    }
+    if lower.contains("gemini") {
+        return "gemini".to_string();
+    }
+    if lower.contains("claude") || lower.contains("gpt") {
+        return "claude".to_string();
+    }
+
+    let mut slug = String::new();
+    let mut prev_dash = false;
+    for ch in lower.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch);
+            prev_dash = false;
+        } else if !slug.is_empty() && !prev_dash {
+            slug.push('-');
+            prev_dash = true;
+        }
+    }
+    let slug = slug.trim_matches('-').to_string();
+    if !slug.is_empty() {
+        slug
+    } else if !fallback_bucket_id.trim().is_empty() {
+        fallback_bucket_id.trim().to_ascii_lowercase()
+    } else {
+        "group".to_string()
+    }
+}
+
+fn make_unique_group_id(base_id: String, used_ids: &mut HashSet<String>) -> String {
+    if used_ids.insert(base_id.clone()) {
+        return base_id;
+    }
+    let mut idx = 2usize;
+    loop {
+        let candidate = format!("{}-{}", base_id, idx);
+        if used_ids.insert(candidate.clone()) {
+            return candidate;
+        }
+        idx += 1;
+    }
+}
+
+fn build_quota_group(
+    raw_display_name: &str,
+    description: String,
+    five_hour_bucket: Option<BucketInfo>,
+    weekly_bucket: Option<BucketInfo>,
+    used_ids: &mut HashSet<String>,
+) -> Option<QuotaGroup> {
+    if five_hour_bucket.is_none() && weekly_bucket.is_none() {
+        return None;
+    }
+
+    let fallback_bucket = five_hour_bucket
+        .as_ref()
+        .or(weekly_bucket.as_ref());
+    let fallback_bucket_id = fallback_bucket
+        .map(|b| b.bucket_id.as_str())
+        .unwrap_or("");
+    let display_name = if !raw_display_name.trim().is_empty() {
+        raw_display_name.trim().to_string()
+    } else if let Some(b) = fallback_bucket {
+        if !b.display_name.trim().is_empty() {
+            b.display_name.trim().to_string()
+        } else {
+            b.bucket_id.clone()
+        }
+    } else {
+        "Quota".to_string()
+    };
+
+    let base_id = derive_group_base_id(&display_name, fallback_bucket_id);
+    let id = make_unique_group_id(base_id, used_ids);
+    let tab_label = derive_tab_label(&display_name);
+
+    Some(QuotaGroup {
+        id,
+        display_name,
+        tab_label,
+        description,
+        five_hour_bucket,
+        weekly_bucket,
+    })
+}
+
+/// RPC (RetrieveUserQuotaSummary) のレスポンスからクォータ保持グループを動的に抽出する
+fn parse_rpc_quota_summary(
+    summary_json: &serde_json::Value,
+    now_utc: DateTime<Utc>,
+) -> Vec<QuotaGroup> {
+    let mut parsed_groups = Vec::new();
+    let mut used_ids = HashSet::new();
+
+    if let Some(raw_groups) = summary_json["response"]["groups"].as_array() {
+        for g in raw_groups {
+            let display_name = g["displayName"].as_str().unwrap_or("");
+            let description = g["description"].as_str().unwrap_or("").to_string();
+
+            let mut five_hour: Option<BucketInfo> = None;
+            let mut weekly: Option<BucketInfo> = None;
+
+            if let Some(buckets) = g["buckets"].as_array() {
+                for b in buckets {
+                    let Some(fraction) = b["remainingFraction"].as_f64() else {
+                        continue;
+                    };
+                    let bucket_id = b["bucketId"].as_str().unwrap_or("").to_string();
+                    let Some(window) = normalize_bucket_window(b["window"].as_str(), &bucket_id) else {
+                        continue;
+                    };
+                    let b_display = b["displayName"].as_str().unwrap_or("").to_string();
+                    let reset_time_str = b["resetTime"].as_str().unwrap_or("").to_string();
+
+                    let info = create_bucket_info(
+                        bucket_id,
+                        b_display,
+                        window.to_string(),
+                        fraction,
+                        reset_time_str,
+                        now_utc,
+                    );
+
+                    if window == "5h" {
+                        five_hour = Some(info);
+                    } else if window == "weekly" {
+                        weekly = Some(info);
+                    }
+                }
+            }
+
+            if let Some(group) =
+                build_quota_group(display_name, description, five_hour, weekly, &mut used_ids)
+            {
+                parsed_groups.push(group);
+            }
+        }
+    }
+
+    parsed_groups
+}
+
 /// 稼働中 Language Server へのローカル RPC 経由でクォータ情報を取得する
 fn fetch_quota_via_rpc(now_utc: DateTime<Utc>, updated_at: &str) -> Result<QuotaStatus, QuotaStatus> {
     let (token, ports) = match discover_language_server() {
@@ -425,7 +606,7 @@ fn fetch_quota_via_rpc(now_utc: DateTime<Utc>, updated_at: &str) -> Result<Quota
         }
     }
 
-    // 2. RetrieveUserQuotaSummary から3グループの最新クォータ詳細を取得
+    // 2. RetrieveUserQuotaSummary から最新クォータ詳細を取得（クォータ保持グループのみ動的構成）
     let summary_json = match fetch_rpc(&token, &ports, "RetrieveUserQuotaSummary") {
         Ok(j) => j,
         Err(err) => {
@@ -443,49 +624,7 @@ fn fetch_quota_via_rpc(now_utc: DateTime<Utc>, updated_at: &str) -> Result<Quota
         }
     };
 
-    let mut parsed_groups = Vec::new();
-
-    if let Some(raw_groups) = summary_json["response"]["groups"].as_array() {
-        for g in raw_groups {
-            let display_name = g["displayName"].as_str().unwrap_or("").to_string();
-            let description = g["description"].as_str().unwrap_or("").to_string();
-
-            let mut five_hour: Option<BucketInfo> = None;
-            let mut weekly: Option<BucketInfo> = None;
-
-            if let Some(buckets) = g["buckets"].as_array() {
-                for b in buckets {
-                    let bucket_id = b["bucketId"].as_str().unwrap_or("").to_string();
-                    let b_display = b["displayName"].as_str().unwrap_or("").to_string();
-                    let window = b["window"].as_str().unwrap_or("").to_string();
-                    let fraction = b["remainingFraction"].as_f64().unwrap_or(1.0);
-                    let reset_time_str = b["resetTime"].as_str().unwrap_or("").to_string();
-
-                    let info = create_bucket_info(
-                        bucket_id,
-                        b_display,
-                        window.clone(),
-                        fraction,
-                        reset_time_str,
-                        now_utc,
-                    );
-
-                    if window == "5h" {
-                        five_hour = Some(info);
-                    } else if window == "weekly" {
-                        weekly = Some(info);
-                    }
-                }
-            }
-
-            parsed_groups.push(QuotaGroup {
-                display_name,
-                description,
-                five_hour_bucket: five_hour,
-                weekly_bucket: weekly,
-            });
-        }
-    }
+    let parsed_groups = parse_rpc_quota_summary(&summary_json, now_utc);
 
     if parsed_groups.is_empty() {
         return Err(QuotaStatus {
@@ -615,13 +754,7 @@ fn run_agy_usage_command(agy_path: &Path, timeout: Duration) -> Result<String, S
     Ok(String::from_utf8_lossy(&stdout_bytes).into_owned())
 }
 
-fn set_group_desc_if_empty(group: &mut QuotaGroup, desc: &str) {
-    if group.description.is_empty() && !desc.is_empty() {
-        group.description = desc.to_string();
-    }
-}
-
-/// agy /usage の JSON 出力をバケット ID ベースで 3 グループ構成へ変換する
+/// agy /usage の JSON 出力から groups と buckets の構造をもとにクォータ保持グループを動的に組み立てる
 fn parse_agy_usage_json(
     raw_json: &str,
     now_utc: DateTime<Utc>,
@@ -641,95 +774,55 @@ fn parse_agy_usage_json(
         .as_array()
         .ok_or_else(|| "agy groups が見つかりません".to_string())?;
 
-    let mut gemini_group = QuotaGroup {
-        display_name: "Gemini Models".to_string(),
-        description: String::new(),
-        five_hour_bucket: None,
-        weekly_bucket: None,
-    };
-    let mut argon_group = QuotaGroup {
-        display_name: "Gemini 4 Argon".to_string(),
-        description: String::new(),
-        five_hour_bucket: None,
-        weekly_bucket: None,
-    };
-    let mut claude_group = QuotaGroup {
-        display_name: "Claude and GPT models".to_string(),
-        description: String::new(),
-        five_hour_bucket: None,
-        weekly_bucket: None,
-    };
+    let mut groups = Vec::new();
+    let mut used_ids = HashSet::new();
 
     for g in raw_groups {
-        let group_desc = g["description"].as_str().unwrap_or("");
+        let display_name = g["name"].as_str().unwrap_or("");
+        let description = g["description"].as_str().unwrap_or("").to_string();
         let Some(buckets) = g["buckets"].as_array() else {
             continue;
         };
 
+        let mut five_hour: Option<BucketInfo> = None;
+        let mut weekly: Option<BucketInfo> = None;
+
         for b in buckets {
-            let Some(bucket_id) = b["id"].as_str() else {
-                continue;
-            };
             let Some(fraction) = b["remaining_fraction"].as_f64() else {
                 continue;
             };
-
-            let default_window = match bucket_id {
-                "gemini-5h" | "3p-5h" => "5h",
-                "gemini-weekly" | "gemini-argon-wtu-weekly" | "3p-weekly" => "weekly",
-                _ => continue,
+            let bucket_id = b["id"].as_str().unwrap_or("").to_string();
+            let Some(window) = normalize_bucket_window(b["window"].as_str(), &bucket_id) else {
+                continue;
             };
-
-            let window = b["window"]
-                .as_str()
-                .filter(|s| !s.is_empty())
-                .unwrap_or(default_window)
-                .to_string();
             let b_display = b["name"].as_str().unwrap_or("").to_string();
             let reset_time_str = b["reset_time"].as_str().unwrap_or("").to_string();
 
             let info = create_bucket_info(
-                bucket_id.to_string(),
+                bucket_id,
                 b_display,
-                window,
+                window.to_string(),
                 fraction,
                 reset_time_str,
                 now_utc,
             );
 
-            match bucket_id {
-                "gemini-5h" => {
-                    set_group_desc_if_empty(&mut gemini_group, group_desc);
-                    gemini_group.five_hour_bucket = Some(info);
-                }
-                "gemini-weekly" => {
-                    set_group_desc_if_empty(&mut gemini_group, group_desc);
-                    gemini_group.weekly_bucket = Some(info);
-                }
-                "gemini-argon-wtu-weekly" => {
-                    set_group_desc_if_empty(&mut argon_group, group_desc);
-                    argon_group.weekly_bucket = Some(info);
-                }
-                "3p-5h" => {
-                    set_group_desc_if_empty(&mut claude_group, group_desc);
-                    claude_group.five_hour_bucket = Some(info);
-                }
-                "3p-weekly" => {
-                    set_group_desc_if_empty(&mut claude_group, group_desc);
-                    claude_group.weekly_bucket = Some(info);
-                }
-                _ => {}
+            if window == "5h" {
+                five_hour = Some(info);
+            } else if window == "weekly" {
+                weekly = Some(info);
             }
+        }
+
+        if let Some(group) =
+            build_quota_group(display_name, description, five_hour, weekly, &mut used_ids)
+        {
+            groups.push(group);
         }
     }
 
-    let groups: Vec<QuotaGroup> = [gemini_group, argon_group, claude_group]
-        .into_iter()
-        .filter(|g| g.five_hour_bucket.is_some() || g.weekly_bucket.is_some())
-        .collect();
-
     if groups.is_empty() {
-        return Err("既知のクォータバケットが見つかりません".to_string());
+        return Err("クォータバケットを含むグループが見つかりません".to_string());
     }
 
     Ok(QuotaStatus {
@@ -1053,12 +1146,19 @@ mod tests {
         let _ = fs::remove_dir_all(&temp_dir);
     }
 
-    const SAMPLE_AGY_JSON: &str = r#"{"conversation_id":"","status":"SUCCESS","response":"...","duration_seconds":0,"num_turns":0,"usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0},"command":{"name":"usage","data":{"description":"Within each group...","groups":[{"name":"Gemini Models","description":"Models within this group: Gemini 4 Neon, Gemini 4 Hydrogen","buckets":[{"id":"gemini-weekly","name":"Weekly Limit Remaining","description":"...","window":"weekly","remaining_fraction":0.16746044158935547,"reset_time":"2026-11-25T11:23:39Z"},{"id":"gemini-5h","name":"Five Hour Limit Remaining","description":"...","window":"5h","remaining_fraction":0.3740962743759155,"reset_time":"2026-11-21T02:29:02Z"}]},{"name":"Claude and GPT models","description":"Models within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B","buckets":[{"id":"3p-weekly","name":"Weekly Limit Remaining","window":"weekly","remaining_fraction":1,"reset_time":"2026-11-28T01:04:58Z"},{"id":"3p-5h","name":"Five Hour Limit Remaining","window":"5h","remaining_fraction":1,"reset_time":"2026-11-21T06:04:58Z"}]},{"name":"Gemini 4 Argon","description":"For paid Pro plans, Argon quota is separate.","buckets":[{"id":"gemini-argon-wtu-weekly","name":"Gemini 4 Argon Weekly Limit","description":"...","window":"weekly","remaining_fraction":0.0711742639541626,"reset_time":"2026-11-25T11:15:13Z"}]}]}}}"#;
+    const SAMPLE_AGY_JSON_LEGACY_3_GROUPS: &str = r#"{"conversation_id":"","status":"SUCCESS","response":"...","duration_seconds":0,"num_turns":0,"usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0},"command":{"name":"usage","data":{"description":"Within each group...","groups":[{"name":"Gemini Models","description":"Models within this group: Gemini 4 Neon, Gemini 4 Hydrogen","buckets":[{"id":"gemini-weekly","name":"Weekly Limit Remaining","description":"...","window":"weekly","remaining_fraction":0.16746044158935547,"reset_time":"2026-11-25T11:23:39Z"},{"id":"gemini-5h","name":"Five Hour Limit Remaining","description":"...","window":"5h","remaining_fraction":0.3740962743759155,"reset_time":"2026-11-21T02:29:02Z"}]},{"name":"Claude and GPT models","description":"Models within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B","buckets":[{"id":"3p-weekly","name":"Weekly Limit Remaining","window":"weekly","remaining_fraction":1,"reset_time":"2026-11-28T01:04:58Z"},{"id":"3p-5h","name":"Five Hour Limit Remaining","window":"5h","remaining_fraction":1,"reset_time":"2026-11-21T06:04:58Z"}]},{"name":"Gemini 4 Argon","description":"For paid Pro plans, Argon quota is separate.","buckets":[{"id":"gemini-argon-wtu-weekly","name":"Gemini 4 Argon Weekly Limit","description":"...","window":"weekly","remaining_fraction":0.0711742639541626,"reset_time":"2026-11-25T11:15:13Z"}]}]}}}"#;
+
+    const SAMPLE_AGY_JSON_NEW_2_GROUPS: &str = r#"{"conversation_id":"","status":"SUCCESS","response":"...","duration_seconds":0,"num_turns":0,"usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0},"command":{"name":"usage","data":{"description":"Within each group...","groups":[{"name":"Gemini Models","description":"Models within this group: Gemini 4 Neon, Gemini 4 Carbon, Gemini 4 Argon, Gemini 4 Hydrogen, Orchestrator (Neon), Orchestrator (Carbon), Orchestrator (Argon), Gemini 3.8 Flash","buckets":[{"id":"gemini-weekly","name":"Weekly Limit Remaining","window":"weekly","remaining_fraction":0.9845706224441528,"reset_time":"2026-12-01T11:54:24Z"},{"id":"gemini-5h","name":"Five Hour Limit Remaining","window":"5h","remaining_fraction":0.9482823610305786,"reset_time":"2026-11-24T16:54:24Z"}]},{"name":"Claude and GPT models","description":"Models within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B","buckets":[{"id":"3p-weekly","name":"Weekly Limit Remaining","window":"weekly","remaining_fraction":0.4883776009082794,"reset_time":"2026-11-28T07:37:58Z"},{"id":"3p-5h","name":"Five Hour Limit Remaining","window":"5h","remaining_fraction":1,"reset_time":"2026-11-24T16:59:13Z"}]}]}}}"#;
 
     #[test]
-    fn test_parse_agy_usage_json_success() {
+    fn test_parse_agy_usage_json_legacy_3_groups() {
         let now = "2026-11-21T01:05:00Z".parse::<DateTime<Utc>>().unwrap();
-        let status = parse_agy_usage_json(SAMPLE_AGY_JSON, now, "10:05:00".to_string()).unwrap();
+        let status = parse_agy_usage_json(
+            SAMPLE_AGY_JSON_LEGACY_3_GROUPS,
+            now,
+            "10:05:00".to_string(),
+        )
+        .unwrap();
 
         assert!(status.connected);
         assert_eq!(status.source, "agy");
@@ -1069,59 +1169,80 @@ mod tests {
 
         // 0: Gemini Models
         let g0 = &status.groups[0];
+        assert_eq!(g0.id, "gemini");
+        assert_eq!(g0.tab_label, "Gemini");
         assert_eq!(g0.display_name, "Gemini Models");
         assert_eq!(g0.five_hour_bucket.as_ref().unwrap().bucket_id, "gemini-5h");
         assert_eq!(g0.five_hour_bucket.as_ref().unwrap().percentage, 37.4);
         assert_eq!(g0.weekly_bucket.as_ref().unwrap().bucket_id, "gemini-weekly");
         assert_eq!(g0.weekly_bucket.as_ref().unwrap().percentage, 16.7);
 
-        // 1: Gemini 4 Argon
+        // 1: Claude and GPT models
         let g1 = &status.groups[1];
-        assert_eq!(g1.display_name, "Gemini 4 Argon");
-        assert!(g1.five_hour_bucket.is_none());
+        assert_eq!(g1.id, "claude");
+        assert_eq!(g1.tab_label, "Claude / GPT");
+        assert_eq!(g1.display_name, "Claude and GPT models");
+        assert_eq!(g1.five_hour_bucket.as_ref().unwrap().bucket_id, "3p-5h");
+        assert_eq!(g1.five_hour_bucket.as_ref().unwrap().percentage, 100.0);
+        assert_eq!(g1.weekly_bucket.as_ref().unwrap().bucket_id, "3p-weekly");
+        assert_eq!(g1.weekly_bucket.as_ref().unwrap().percentage, 100.0);
+
+        // 2: Gemini 4 Argon
+        let g2 = &status.groups[2];
+        assert_eq!(g2.id, "argon");
+        assert_eq!(g2.tab_label, "Argon");
+        assert_eq!(g2.display_name, "Gemini 4 Argon");
+        assert!(g2.five_hour_bucket.is_none());
         assert_eq!(
-            g1.weekly_bucket.as_ref().unwrap().bucket_id,
+            g2.weekly_bucket.as_ref().unwrap().bucket_id,
             "gemini-argon-wtu-weekly"
         );
-        assert_eq!(g1.weekly_bucket.as_ref().unwrap().percentage, 7.1);
-
-        // 2: Claude and GPT models
-        let g2 = &status.groups[2];
-        assert_eq!(g2.display_name, "Claude and GPT models");
-        assert_eq!(g2.five_hour_bucket.as_ref().unwrap().bucket_id, "3p-5h");
-        assert_eq!(g2.five_hour_bucket.as_ref().unwrap().percentage, 100.0);
-        assert_eq!(g2.weekly_bucket.as_ref().unwrap().bucket_id, "3p-weekly");
-        assert_eq!(g2.weekly_bucket.as_ref().unwrap().percentage, 100.0);
+        assert_eq!(g2.weekly_bucket.as_ref().unwrap().percentage, 7.1);
     }
 
     #[test]
-    fn test_parse_agy_usage_json_shuffled_order_by_bucket_id() {
-        let now = "2026-11-21T01:05:00Z".parse::<DateTime<Utc>>().unwrap();
-        let shuffled = r#"{
+    fn test_parse_agy_usage_json_new_2_groups() {
+        let now = "2026-11-24T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let status = parse_agy_usage_json(
+            SAMPLE_AGY_JSON_NEW_2_GROUPS,
+            now,
+            "21:00:00".to_string(),
+        )
+        .unwrap();
+
+        assert!(status.connected);
+        assert_eq!(status.source, "agy");
+        assert_eq!(status.groups.len(), 2);
+
+        assert_eq!(status.groups[0].id, "gemini");
+        assert_eq!(status.groups[0].tab_label, "Gemini");
+        assert_eq!(status.groups[0].five_hour_bucket.as_ref().unwrap().percentage, 94.8);
+        assert_eq!(status.groups[0].weekly_bucket.as_ref().unwrap().percentage, 98.5);
+
+        assert_eq!(status.groups[1].id, "claude");
+        assert_eq!(status.groups[1].tab_label, "Claude / GPT");
+        assert_eq!(status.groups[1].five_hour_bucket.as_ref().unwrap().percentage, 100.0);
+        assert_eq!(status.groups[1].weekly_bucket.as_ref().unwrap().percentage, 48.8);
+    }
+
+    #[test]
+    fn test_parse_agy_usage_json_unknown_group_and_empty_group() {
+        let now = "2026-11-24T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let raw = r#"{
             "status": "SUCCESS",
             "command": {
                 "name": "usage",
                 "data": {
                     "groups": [
                         {
-                            "name": "Renamed Group Z",
-                            "buckets": [
-                                { "id": "gemini-argon-wtu-weekly", "name": "Argon W", "remaining_fraction": 0.25, "reset_time": "2026-11-25T11:15:13Z" },
-                                { "id": "unknown-future-bucket", "name": "Ignored", "remaining_fraction": 0.5, "reset_time": "2026-11-25T11:15:13Z" }
-                            ]
+                            "name": "Empty Group Without Quota",
+                            "buckets": []
                         },
                         {
-                            "name": "Renamed Group B",
+                            "name": "Experimental Ultra",
+                            "description": "Future experimental models",
                             "buckets": [
-                                { "id": "3p-5h", "name": "3P 5h", "remaining_fraction": 0.88, "reset_time": "2026-11-21T06:04:58Z" },
-                                { "id": "gemini-weekly", "name": "Gemini W", "remaining_fraction": 0.42, "reset_time": "2026-11-25T11:23:39Z" }
-                            ]
-                        },
-                        {
-                            "name": "Renamed Group A",
-                            "buckets": [
-                                { "id": "3p-weekly", "name": "3P W", "remaining_fraction": 0.91, "reset_time": "2026-11-28T01:04:58Z" },
-                                { "id": "gemini-5h", "name": "Gemini 5h", "remaining_fraction": 0.63, "reset_time": "2026-11-21T02:29:02Z" }
+                                { "id": "ultra-weekly", "name": "Ultra Weekly", "remaining_fraction": 0.72, "reset_time": "2026-12-01T11:54:24Z" }
                             ]
                         }
                     ]
@@ -1129,21 +1250,106 @@ mod tests {
             }
         }"#;
 
-        let status = parse_agy_usage_json(shuffled, now, "10:05:00".to_string()).unwrap();
-        assert_eq!(status.groups.len(), 3);
-        assert_eq!(status.groups[0].display_name, "Gemini Models");
-        assert_eq!(status.groups[0].five_hour_bucket.as_ref().unwrap().bucket_id, "gemini-5h");
-        assert_eq!(status.groups[0].five_hour_bucket.as_ref().unwrap().percentage, 63.0);
-        assert_eq!(status.groups[0].weekly_bucket.as_ref().unwrap().bucket_id, "gemini-weekly");
-        assert_eq!(status.groups[0].weekly_bucket.as_ref().unwrap().percentage, 42.0);
+        let status = parse_agy_usage_json(raw, now, "21:00:00".to_string()).unwrap();
+        assert_eq!(status.groups.len(), 1);
+        assert_eq!(status.groups[0].id, "experimental-ultra");
+        assert_eq!(status.groups[0].tab_label, "Experimental Ultra");
+        assert_eq!(status.groups[0].display_name, "Experimental Ultra");
+        assert!(status.groups[0].five_hour_bucket.is_none());
+        assert_eq!(status.groups[0].weekly_bucket.as_ref().unwrap().percentage, 72.0);
+    }
 
-        assert_eq!(status.groups[1].display_name, "Gemini 4 Argon");
-        assert!(status.groups[1].five_hour_bucket.is_none());
-        assert_eq!(status.groups[1].weekly_bucket.as_ref().unwrap().percentage, 25.0);
+    #[test]
+    fn test_parse_rpc_quota_summary_new_2_groups_and_empty_argon() {
+        let now = "2026-11-24T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let summary: serde_json::Value = serde_json::from_str(r#"{
+            "response": {
+                "groups": [
+                    {
+                        "displayName": "Gemini Models",
+                        "description": "Gemini shared quota",
+                        "buckets": [
+                            { "bucketId": "gemini-5h", "displayName": "5h", "window": "5h", "remainingFraction": 0.98, "resetTime": "2026-11-24T16:54:24Z" },
+                            { "bucketId": "gemini-weekly", "displayName": "Weekly", "window": "weekly", "remainingFraction": 0.99, "resetTime": "2026-12-01T11:54:24Z" }
+                        ]
+                    },
+                    {
+                        "displayName": "Gemini 4 Argon",
+                        "description": "No dedicated quota",
+                        "buckets": []
+                    },
+                    {
+                        "displayName": "Claude and GPT models",
+                        "description": "3P models",
+                        "buckets": [
+                            { "bucketId": "3p-5h", "displayName": "5h", "window": "5h", "remainingFraction": 1.0, "resetTime": "2026-11-24T16:59:13Z" },
+                            { "bucketId": "3p-weekly", "displayName": "Weekly", "window": "weekly", "remainingFraction": 0.49, "resetTime": "2026-11-28T07:37:58Z" }
+                        ]
+                    }
+                ]
+            }
+        }"#).unwrap();
 
-        assert_eq!(status.groups[2].display_name, "Claude and GPT models");
-        assert_eq!(status.groups[2].five_hour_bucket.as_ref().unwrap().percentage, 88.0);
-        assert_eq!(status.groups[2].weekly_bucket.as_ref().unwrap().percentage, 91.0);
+        let groups = parse_rpc_quota_summary(&summary, now);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].id, "gemini");
+        assert_eq!(groups[0].tab_label, "Gemini");
+        assert_eq!(groups[0].five_hour_bucket.as_ref().unwrap().percentage, 98.0);
+        assert_eq!(groups[0].weekly_bucket.as_ref().unwrap().percentage, 99.0);
+
+        assert_eq!(groups[1].id, "claude");
+        assert_eq!(groups[1].tab_label, "Claude / GPT");
+        assert_eq!(groups[1].five_hour_bucket.as_ref().unwrap().percentage, 100.0);
+        assert_eq!(groups[1].weekly_bucket.as_ref().unwrap().percentage, 49.0);
+    }
+
+    #[test]
+    fn test_parse_rpc_quota_summary_legacy_3_groups() {
+        let now = "2026-11-21T01:05:00Z".parse::<DateTime<Utc>>().unwrap();
+        let summary: serde_json::Value = serde_json::from_str(r#"{
+            "response": {
+                "groups": [
+                    {
+                        "displayName": "Gemini Models",
+                        "buckets": [
+                            { "bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.45, "resetTime": "2026-11-21T02:29:02Z" },
+                            { "bucketId": "gemini-weekly", "window": "weekly", "remainingFraction": 0.65, "resetTime": "2026-11-25T11:23:39Z" }
+                        ]
+                    },
+                    {
+                        "displayName": "Gemini 4 Argon",
+                        "buckets": [
+                            { "bucketId": "gemini-argon-wtu-weekly", "window": "weekly", "remainingFraction": 0.18, "resetTime": "2026-11-25T11:15:13Z" }
+                        ]
+                    },
+                    {
+                        "displayName": "Claude and GPT models",
+                        "buckets": [
+                            { "bucketId": "3p-5h", "window": "5h", "remainingFraction": 0.90, "resetTime": "2026-11-21T06:04:58Z" },
+                            { "bucketId": "3p-weekly", "window": "weekly", "remainingFraction": 0.85, "resetTime": "2026-11-28T01:04:58Z" }
+                        ]
+                    }
+                ]
+            }
+        }"#).unwrap();
+
+        let groups = parse_rpc_quota_summary(&summary, now);
+        assert_eq!(groups.len(), 3);
+        assert_eq!(groups[0].id, "gemini");
+        assert_eq!(groups[1].id, "argon");
+        assert_eq!(groups[1].tab_label, "Argon");
+        assert!(groups[1].five_hour_bucket.is_none());
+        assert_eq!(groups[1].weekly_bucket.as_ref().unwrap().percentage, 18.0);
+        assert_eq!(groups[2].id, "claude");
+    }
+
+    #[test]
+    fn test_app_config_ignores_legacy_tab_fields() {
+        let cfg: AppConfig = serde_json::from_str(
+            r#"{"autostart_enabled": true, "selected_tab": "argon", "active_group": "argon"}"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.autostart_enabled, Some(true));
     }
 
     #[test]
@@ -1258,14 +1464,49 @@ mod tests {
         let status = fetch_quota_via_agy(now_utc, &updated_at).expect("live agy fetch should succeed");
         assert!(status.connected);
         assert_eq!(status.source, "agy");
-        assert_eq!(status.groups.len(), 3);
+        assert!(!status.groups.is_empty());
         for g in &status.groups {
+            assert!(g.five_hour_bucket.is_some() || g.weekly_bucket.is_some());
             println!(
-                "group={} 5h={:?} weekly={:?}",
+                "[agy] id={} tab={} group={} 5h={:?} weekly={:?}",
+                g.id,
+                g.tab_label,
                 g.display_name,
                 g.five_hour_bucket.as_ref().map(|b| (b.bucket_id.as_str(), b.percentage)),
                 g.weekly_bucket.as_ref().map(|b| (b.bucket_id.as_str(), b.percentage))
             );
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fetch_quota_via_rpc_live() {
+        let now_utc = Utc::now();
+        let updated_at = Local::now().format("%H:%M:%S").to_string();
+        let status = fetch_quota_via_rpc(now_utc, &updated_at).expect("live rpc fetch should succeed");
+        assert!(status.connected);
+        assert_eq!(status.source, "rpc");
+        assert!(!status.groups.is_empty());
+        println!(
+            "[rpc] plan={} credits={:?} groups={} models={}",
+            status.plan_name,
+            status.prompt_credits,
+            status.groups.len(),
+            status.models.len()
+        );
+        for g in &status.groups {
+            assert!(g.five_hour_bucket.is_some() || g.weekly_bucket.is_some());
+            println!(
+                "[rpc] id={} tab={} group={} 5h={:?} weekly={:?}",
+                g.id,
+                g.tab_label,
+                g.display_name,
+                g.five_hour_bucket.as_ref().map(|b| (b.bucket_id.as_str(), b.percentage)),
+                g.weekly_bucket.as_ref().map(|b| (b.bucket_id.as_str(), b.percentage))
+            );
+        }
+        for m in &status.models {
+            println!("[rpc-model] label={} id={} pct={}", m.label, m.model_id, m.percentage);
         }
     }
 }

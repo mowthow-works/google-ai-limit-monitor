@@ -167,16 +167,19 @@ body {
 
 .tab-btn {
   flex: 1;
+  min-width: 0;
   background: transparent;
   border: 1px solid transparent;
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 600;
-  padding: 3px 0;
+  padding: 3px 4px;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tab-btn:hover {
