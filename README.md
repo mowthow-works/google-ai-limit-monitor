@@ -1,6 +1,6 @@
 # <img src="src-tauri/icons/128x128.png" alt="Google AI Limit Monitor Icon" width="36" valign="middle" /> Google AI Limit Monitor (Windows Desktop Gadget)
 
-[![Release](https://img.shields.io/badge/version-v1.1.4-blue.svg)](https://github.com/mowthow-works/google-ai-limit-monitor/releases)
+[![Release](https://img.shields.io/badge/version-v1.1.5-blue.svg)](https://github.com/mowthow-works/google-ai-limit-monitor/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6.svg)](https://www.microsoft.com/windows)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -31,8 +31,8 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
       </td>
       <td align="center" width="33%">
         <b>🔴 警告 (0%〜29%)</b><br />
-        <sub>Argon タブ（Weekly 専用）</sub><br />
-        <img src="docs/screenshot_argon.png" alt="Argon タブ（警告表示）" width="260" />
+        <sub>Weekly 専用タブ例（警告表示）</sub><br />
+        <img src="docs/screenshot_argon.png" alt="Weekly 専用タブ例（警告表示）" width="260" />
       </td>
     </tr>
   </table>
@@ -44,10 +44,9 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 
 ### 表示・UI
 - 🪟 **デスクトップ常駐 & 常に最前面 (Always On Top)**: 開発作業中も画面の隅に常に配置され、クォータ残量をいつでも一目で確認できます。
-- 📑 **モデルグループ別のタブ切り替え対応**: Antigravity のクォータ管理体系に合わせ、3つのグループをワンクリックで切り替えてモニタリングできます。
-  1. **Gemini**: 標準 Gemini 枠（5-Hour Limit & Weekly Limit）
-  2. **Argon**: 最先端思考モデル専用枠（Weekly Limit ※5h 制限なし）
-  3. **Claude / GPT**: サードパーティモデル枠（5-Hour Limit & Weekly Limit）
+- 📑 **クォータ保持グループに応じた動的タブ切り替え対応**: Antigravity（Language Server / `agy` CLI）から返却されるクォータ保持グループの構造に合わせて、タブを動的に構成してワンクリックで切り替えられます。
+  - 現行の 2 グループ構成では **Gemini**（Argon を含む Gemini 共通枠：5-Hour Limit & Weekly Limit）と **Claude / GPT**（5-Hour Limit & Weekly Limit）を表示します。
+  - 将来や旧環境で独立したクォータ枠（Weekly 専用枠や新規グループ等）が存在する場合は、自動的に該当タブが追加表示されます。
 - 🏷️ **最新モデル一覧の動的バッジ表示**: Language Server の `GetUserStatus` から最新の利用可能モデルを動的に取得し、選択中のグループに属するモデルを画面下部へ一覧表示します（ホバーでモデル ID や残量 % を確認可能）。
 - 🎨 **洗練されたフロストガラス & 3段階カラーゲージ**: 残量に応じて **🟢 80〜100%（安全）** / **🟡 30〜79%（注意）** / **🔴 0〜29%（警告）** へ変化します。
 - 🖱️ **スムーズなタイトルバードラッグ**: ウィンドウ上部のタイトルバー領域を掴んで画面上の任意の位置へ手軽に配置できます。
@@ -108,7 +107,7 @@ Google AI（Antigravity / Gemini）の利用枠である **「5-Hour Rolling Lim
 - （ローカルでソースからビルドした場合は、`src-tauri/target/release/google-ai-limit-monitor.exe` を直接起動できます）
 
 ### 2. ガジェットの操作
-- **タブ切り替え [Gemini / Argon / Claude & GPT]**: クリックで各モデルグループのクォータ表示を瞬時に切り替えます。
+- **タブ切り替え（動的構成）**: クリックでクォータを持つ各モデルグループ（例: `Gemini` / `Claude / GPT` 等）の表示を瞬時に切り替えます。
 - **移動**: ウィンドウ上部のタイトルバー（`Google AI Limits` 付近）をドラッグして画面上の自由な位置へ移動できます。
 - **更新 [↻]**: ボタンをクリックすると即座に最新のクォータ情報を再取得します。
 - **最小化 [_]**: タスクバーへ最小化します。

@@ -11,6 +11,7 @@ const sourceBadge = document.getElementById("source-badge");
 
 const card5h = document.getElementById("card-5h");
 const cardNo5h = document.getElementById("card-no-5h");
+const no5hDesc = document.getElementById("no-5h-desc");
 const ring5h = document.getElementById("ring-5h");
 const val5h = document.getElementById("val-5h");
 const reset5h = document.getElementById("reset-5h");
@@ -29,13 +30,48 @@ const btnRefresh = document.getElementById("btn-refresh");
 const btnMinimize = document.getElementById("btn-minimize");
 const btnClose = document.getElementById("btn-close");
 
-const tabButtons = document.querySelectorAll(".tab-btn");
+const groupTabs = document.getElementById("group-tabs");
 
-let currentGroup = "gemini"; // "gemini" | "argon" | "claude"
+let currentGroupId = null;
 let cachedData = null;
 let fiveHourSeconds = 0;
 let weeklySeconds = 0;
 let demoMode = false;
+
+const DEMO_GROUPS = [
+  {
+    id: "gemini",
+    display_name: "Gemini Models",
+    tab_label: "Gemini",
+    description: "Models within this group: Gemini 4 Neon, Gemini 4 Argon, Gemini 3.8 Flash",
+    five_hour_bucket: {
+      remaining_fraction: 0.45,
+      percentage: 45,
+      remaining_seconds: 1 * 3600 + 24 * 60,
+    },
+    weekly_bucket: {
+      remaining_fraction: 0.65,
+      percentage: 65,
+      remaining_seconds: 3 * 86400 + 12 * 3600,
+    },
+  },
+  {
+    id: "claude",
+    display_name: "Claude and GPT models",
+    tab_label: "Claude / GPT",
+    description: "Models within this group: Claude Opus 5.5, Claude Sonnet 5.5, GPT-OSS 120B",
+    five_hour_bucket: {
+      remaining_fraction: 0.90,
+      percentage: 90,
+      remaining_seconds: 2 * 3600 + 15 * 60,
+    },
+    weekly_bucket: {
+      remaining_fraction: 0.85,
+      percentage: 85,
+      remaining_seconds: 5 * 86400 + 4 * 3600,
+    },
+  },
+];
 
 const DEMO_MODELS = [
   { label: "Gemini 4 Argon (Medium)", model_id: "gemini-4-argon-medium", percentage: 18, is_recommended: true },
@@ -96,18 +132,72 @@ function getLocalTimeString() {
   });
 }
 
-function getFilteredModels(groupKey) {
+function getActiveGroups() {
+  if (demoMode) return DEMO_GROUPS;
+  if (!cachedData || !Array.isArray(cachedData.groups)) return [];
+  return cachedData.groups.filter((g) => Boolean(g.five_hour_bucket || g.weekly_bucket));
+}
+
+function resolveActiveGroupId(groups, currentId) {
+  if (!Array.isArray(groups) || groups.length === 0) return null;
+  if (currentId && groups.some((g) => g.id === currentId)) {
+    return currentId;
+  }
+  return groups[0].id;
+}
+
+function renderTabs(groups) {
+  if (!groupTabs) return;
+  groupTabs.innerHTML = "";
+
+  if (!groups || groups.length === 0) {
+    groupTabs.style.display = "none";
+    return;
+  }
+
+  groupTabs.style.display = "flex";
+  groups.forEach((g) => {
+    const btn = document.createElement("button");
+    btn.className = `tab-btn ${g.id === currentGroupId ? "active" : ""}`;
+    btn.dataset.group = g.id;
+    btn.textContent = g.tab_label || g.display_name || g.id;
+    btn.title = g.display_name || g.tab_label || g.id;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      currentGroupId = g.id;
+      renderCurrentGroup();
+    });
+    groupTabs.appendChild(btn);
+  });
+}
+
+function getFilteredModels(targetGroup, activeGroups) {
+  if (!targetGroup) return [];
   const models = demoMode ? DEMO_MODELS : (cachedData?.models || []);
+  const hasArgonTab = activeGroups.some(
+    (g) => g.id === "argon" || (g.display_name || "").toLowerCase().includes("argon")
+  );
+  const gId = (targetGroup.id || "").toLowerCase();
+  const gName = (targetGroup.display_name || "").toLowerCase();
+  const gDesc = (targetGroup.description || "").toLowerCase();
+
   return models.filter((m) => {
     const text = `${m.label} ${m.model_id}`.toLowerCase();
-    if (groupKey === "gemini") {
-      return text.includes("gemini") && !text.includes("argon");
-    } else if (groupKey === "argon") {
+    if (gId === "argon" || gName.includes("argon")) {
       return text.includes("argon");
-    } else if (groupKey === "claude") {
+    }
+    if (gId === "gemini" || gName.includes("gemini")) {
+      if (hasArgonTab) {
+        return text.includes("gemini") && !text.includes("argon");
+      }
+      // Argon 専用枠が Gemini に統合された構成では Argon モデルも Gemini グループへ統合表示する
+      return text.includes("gemini") || text.includes("argon");
+    }
+    if (gId === "claude" || gName.includes("claude") || gName.includes("gpt")) {
       return text.includes("claude") || text.includes("gpt");
     }
-    return false;
+    const baseLabel = (m.label || "").split("(")[0].trim().toLowerCase();
+    return Boolean(baseLabel && (gDesc.includes(baseLabel) || gName.includes(baseLabel)));
   });
 }
 
@@ -115,7 +205,7 @@ function isAgyMode() {
   return !demoMode && Boolean(cachedData?.connected && cachedData?.source === "agy");
 }
 
-function renderModelBadges(groupKey) {
+function renderModelBadges(targetGroup, activeGroups) {
   if (!modelBadges || !modelCount) return;
 
   if (isAgyMode()) {
@@ -128,14 +218,14 @@ function renderModelBadges(groupKey) {
     return;
   }
 
-  const filtered = getFilteredModels(groupKey);
+  const filtered = getFilteredModels(targetGroup, activeGroups);
   modelBadges.innerHTML = "";
 
   if (filtered.length === 0) {
     modelCount.textContent = "0";
     const span = document.createElement("span");
     span.className = "model-badge empty";
-    span.textContent = "モデル情報なし";
+    span.textContent = targetGroup ? "モデル情報なし" : "待機中...";
     modelBadges.appendChild(span);
     return;
   }
@@ -151,97 +241,23 @@ function renderModelBadges(groupKey) {
   });
 }
 
-function findGroupData(groupKey) {
-  if (demoMode) {
-    if (groupKey === "gemini") {
-      return {
-        displayName: "Gemini Models",
-        modelName: "Gemini Models",
-        fiveHour: { fraction: 0.45, pct: 45, seconds: 1 * 3600 + 24 * 60 },
-        weekly: { fraction: 0.65, pct: 65, seconds: 3 * 86400 + 12 * 3600 },
-      };
-    } else if (groupKey === "argon") {
-      return {
-        displayName: "Gemini 4 Argon",
-        modelName: "Gemini 4 Argon",
-        fiveHour: null,
-        weekly: { fraction: 0.18, pct: 18, seconds: 1 * 86400 + 8 * 3600 },
-      };
-    } else {
-      return {
-        displayName: "Claude and GPT models",
-        modelName: "Claude & GPT",
-        fiveHour: { fraction: 0.90, pct: 90, seconds: 2 * 3600 + 15 * 60 },
-        weekly: { fraction: 0.85, pct: 85, seconds: 5 * 86400 + 4 * 3600 },
-      };
-    }
-  }
-
-  if (!cachedData || !cachedData.groups) return null;
-
-  let targetGroup = null;
-  for (const g of cachedData.groups) {
-    const name = g.display_name.toLowerCase();
-    if (groupKey === "gemini" && name.includes("gemini") && !name.includes("argon")) {
-      targetGroup = g;
-      break;
-    } else if (groupKey === "argon" && name.includes("argon")) {
-      targetGroup = g;
-      break;
-    } else if (groupKey === "claude" && (name.includes("claude") || name.includes("gpt"))) {
-      targetGroup = g;
-      break;
-    }
-  }
-
-  if (!targetGroup) return null;
-
-  return {
-    displayName: targetGroup.display_name,
-    modelName:
-      groupKey === "gemini"
-        ? "Gemini Models"
-        : groupKey === "argon"
-        ? "Gemini 4 Argon"
-        : "Claude & GPT",
-    fiveHour: targetGroup.five_hour_bucket
-      ? {
-          fraction: targetGroup.five_hour_bucket.remaining_fraction,
-          pct: targetGroup.five_hour_bucket.percentage,
-          seconds: targetGroup.five_hour_bucket.remaining_seconds,
-        }
-      : null,
-    weekly: targetGroup.weekly_bucket
-      ? {
-          fraction: targetGroup.weekly_bucket.remaining_fraction,
-          pct: targetGroup.weekly_bucket.percentage,
-          seconds: targetGroup.weekly_bucket.remaining_seconds,
-        }
-      : null,
-  };
-}
-
 function renderCurrentGroup() {
-  // タブのactive状態の更新
-  tabButtons.forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.group === currentGroup);
-  });
+  const activeGroups = getActiveGroups();
+  currentGroupId = resolveActiveGroupId(activeGroups, currentGroupId);
+
+  // タブバーの動的再描画
+  renderTabs(activeGroups);
+
+  const targetGroup = activeGroups.find((g) => g.id === currentGroupId) || null;
 
   // モデルバッジ一覧の描画
-  renderModelBadges(currentGroup);
+  renderModelBadges(targetGroup, activeGroups);
 
-  const groupData = findGroupData(currentGroup);
-
-  if (!groupData) {
+  if (!targetGroup) {
     fiveHourSeconds = 0;
     weeklySeconds = 0;
-    if (currentGroup === "argon") {
-      card5h.style.display = "none";
-      cardNo5h.style.display = "flex";
-    } else {
-      card5h.style.display = "flex";
-      cardNo5h.style.display = "none";
-    }
+    card5h.style.display = "flex";
+    cardNo5h.style.display = "none";
     updateGauge(ring5h, val5h, 1.0, 100);
     val5h.textContent = "--%";
     val5h.style.color = "#fff";
@@ -255,32 +271,50 @@ function renderCurrentGroup() {
     return;
   }
 
+  const groupTitle = targetGroup.display_name || targetGroup.tab_label || targetGroup.id;
+
   // 5-Hour Limit または 5h枠なし表示
-  if (groupData.fiveHour) {
+  if (targetGroup.five_hour_bucket) {
     card5h.style.display = "flex";
     cardNo5h.style.display = "none";
-    fiveHourSeconds = groupData.fiveHour.seconds;
-    updateGauge(ring5h, val5h, groupData.fiveHour.fraction, groupData.fiveHour.pct);
+    fiveHourSeconds = targetGroup.five_hour_bucket.remaining_seconds;
+    updateGauge(
+      ring5h,
+      val5h,
+      targetGroup.five_hour_bucket.remaining_fraction,
+      targetGroup.five_hour_bucket.percentage
+    );
     reset5h.textContent = `リセット: ${formatDuration(fiveHourSeconds)}`;
-    model5h.textContent = groupData.modelName;
+    model5h.textContent = groupTitle;
   } else {
-    // Argonなど5h制限なしの場合
+    // 5h制限なし（Weekly専用グループ）の場合
     card5h.style.display = "none";
     cardNo5h.style.display = "flex";
+    if (no5hDesc) {
+      no5hDesc.textContent = `${targetGroup.tab_label || groupTitle}はWeekly枠のみで運用されます`;
+    }
     fiveHourSeconds = 0;
   }
 
   // Weekly Limit
-  if (groupData.weekly) {
+  if (targetGroup.weekly_bucket) {
     cardWeekly.style.display = "flex";
-    weeklySeconds = groupData.weekly.seconds;
-    updateGauge(ringWeekly, valWeekly, groupData.weekly.fraction, groupData.weekly.pct);
+    weeklySeconds = targetGroup.weekly_bucket.remaining_seconds;
+    updateGauge(
+      ringWeekly,
+      valWeekly,
+      targetGroup.weekly_bucket.remaining_fraction,
+      targetGroup.weekly_bucket.percentage
+    );
     resetWeekly.textContent = `リセット: ${formatDuration(weeklySeconds)}`;
-    modelWeekly.textContent = groupData.modelName;
+    modelWeekly.textContent = groupTitle;
   } else {
+    weeklySeconds = 0;
     updateGauge(ringWeekly, valWeekly, 1.0, 100);
-    resetWeekly.textContent = "リセット: 正常";
-    modelWeekly.textContent = groupData.modelName;
+    valWeekly.textContent = "--%";
+    valWeekly.style.color = "#fff";
+    resetWeekly.textContent = "リセット: なし";
+    modelWeekly.textContent = groupTitle;
   }
 }
 
@@ -368,15 +402,6 @@ setInterval(() => {
     resetWeekly.textContent = `リセット: ${formatDuration(weeklySeconds)}`;
   }
 }, 1000);
-
-// タブ切り替えクリック
-tabButtons.forEach((btn) => {
-  btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    currentGroup = btn.dataset.group;
-    renderCurrentGroup();
-  });
-});
 
 // プランバッジクリックでデモモード切り替え
 planBadge.addEventListener("click", (e) => {

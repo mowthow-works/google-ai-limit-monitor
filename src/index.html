@@ -35,12 +35,8 @@
         </div>
       </header>
 
-      <!-- モデルグループ切り替えタブ -->
-      <nav class="group-tabs">
-        <button id="tab-gemini" class="tab-btn active" data-group="gemini">Gemini</button>
-        <button id="tab-argon" class="tab-btn" data-group="argon">Argon</button>
-        <button id="tab-claude" class="tab-btn" data-group="claude">Claude / GPT</button>
-      </nav>
+      <!-- モデルグループ切り替えタブ（クォータ保持グループから動的構成） -->
+      <nav id="group-tabs" class="group-tabs" style="display: none;"></nav>
 
       <!-- メインメーターエリア -->
       <main class="meters-container">
@@ -62,11 +58,11 @@
           </div>
         </div>
 
-        <!-- 5h枠なし時の代替カード（Argon用） -->
+        <!-- 5h枠なし時の代替カード（Weekly専用グループ用） -->
         <div id="card-no-5h" class="meter-card info-card" style="display: none;">
           <div class="info-icon">💎</div>
           <div class="info-title">No 5h Limit</div>
-          <div class="info-desc">ArgonはWeekly枠のみで運用されます</div>
+          <div id="no-5h-desc" class="info-desc">このグループはWeekly枠のみで運用されます</div>
         </div>
 
         <!-- Weekly Limit メーターカード -->
